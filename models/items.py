@@ -9,24 +9,28 @@ pour l'hydratation depuis les réponses JSON.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
-
-# ── Item ──────────────────────────────────────────────────────────────────────
+from typing import Any, List, Optional, Dict
 
 
 @dataclass
 class Item:
-    """Représente un item avec son code et sa quantité."""
-
     code: str
-    quantity: int = 1
+    name: str
+    level: int
+    type: str
+    effects: List[Dict] = field(default_factory=list)
+    craft: Optional[Dict] = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Item":
+    def from_dict(cls, data: Dict):
+        """Méthode helper pour créer un objet Item à partir du JSON de l'API."""
         return cls(
-            code=data["code"],
-            quantity=data.get("quantity", 1),
+            code=data.get("code"),
+            name=data.get("name"),
+            level=data.get("level", 0),
+            type=data.get("type"),
+            effects=data.get("effects", []),
+            craft=data.get("craft"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,9 +38,6 @@ class Item:
 
     def __repr__(self) -> str:
         return f"Item({self.code!r} ×{self.quantity})"
-
-
-# ── Inventory ─────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -70,8 +71,6 @@ class Inventory:
             max_items=data.get("inventory_max_items", 100),
         )
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
-
     @property
     def is_full(self) -> bool:
         """True si tous les slots sont occupés."""
@@ -94,9 +93,6 @@ class Inventory:
 
     def __repr__(self) -> str:
         return f"Inventory({self.used_slots}/{self.max_items} slots, {len(self.items)} types)"
-
-
-# ── Bank ──────────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -122,7 +118,7 @@ class Bank:
             gold=data.get("gold", 0),
             slots=data.get("slots", 0),
             expansions=data.get("expansions", 0),
-            items=[],  # Les items sont chargés séparément via /my/bank/items
+            items=[],
         )
 
     def update_items(self, raw_items: list[dict[str, Any]]) -> None:
@@ -139,16 +135,13 @@ class Bank:
         return f"Bank(gold={self.gold}, items={len(self.items)}, slots={self.slots})"
 
 
-# ── Skill ─────────────────────────────────────────────────────────────────────
-
-
 @dataclass
 class Skill:
     """Niveau et XP d'un skill."""
 
     level: int = 1
     xp: int = 0
-    max_xp: int = 150  # XP nécessaire pour le niveau suivant
+    max_xp: int = 150
 
     @property
     def xp_percent(self) -> float:
@@ -203,9 +196,7 @@ class Skills:
         )
 
 
-# ── Equipment ─────────────────────────────────────────────────────────────────
 
-# Slots valides selon l'OpenAPI (EquipSchema)
 VALID_SLOTS = frozenset(
     {
         "weapon",

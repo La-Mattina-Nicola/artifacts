@@ -1,14 +1,14 @@
 # 🛠️ Artifacts MMO - Python Async OOP Bot
 
 ## 📂 PHASE 1 : Infrastructure & API
-- [ ] **1.1 Async API Client (`api/client.py`)**
-    - [ ] Setup `httpx.AsyncClient` pour les requêtes non-bloquantes.
-    - [ ] Décorateur `@auto_cooldown` : utilise `await asyncio.sleep(data.cooldown)`.
-    - [ ] Gestion d'erreurs globale : Retry sur 5xx (serveur) et Logging sur 4xx (client).
-- [ ] **1.2 Intelligence du Monde (`models/world.py`)**
-    - [ ] Classe `WorldMap` : Stockage des tiles dans un dictionnaire `{(x, y): Tile}`.
-    - [ ] Indexation auto : Listes dédiées pour `banks`, `monsters` et `resources`.
-    - [ ] Méthode `get_nearest(start_pos, type, code)` : Calcul via Distance de Manhattan.
+- [x] **1.1 Async API Client (`api/client.py`)**
+    - [x] Setup `httpx.AsyncClient` pour les requêtes non-bloquantes.
+    - [x] Décorateur `@auto_cooldown` : utilise `await asyncio.sleep(data.cooldown)`.
+    - [x] Gestion d'erreurs globale : Retry sur 5xx (serveur) et Logging sur 4xx (client).
+- [x] **1.2 Intelligence du Monde (`models/world.py`)**
+    - [x] Classe `WorldMap` : Stockage des tiles dans un dictionnaire `{(x, y): Tile}`.
+    - [x] Indexation auto : Listes dédiées pour `banks`, `monsters` et `resources`.
+    - [x] Méthode `get_nearest(start_pos, type, code)` : Calcul via Distance de Manhattan.
 - [ ] **1.3 Modèles de Données (`models/data.py`)**
     - [ ] Dataclasses : `Item`, `Equipment`, `Skill`, `Bank`.
     - [ ] Classe `Inventory` : Méthode `update()`, propriété `@property is_full`.

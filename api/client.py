@@ -12,7 +12,7 @@ from functools import wraps
 def auto_cooldown(func):
     @wraps(func)
     async def wrapper(self, *args, **kwargs):
-        # 1. Attente basée sur l'expiration
+
         if hasattr(self, "cooldown_expiration") and self.cooldown_expiration:
             exp_str = self.cooldown_expiration.replace("Z", "+00:00")
             expire_at = datetime.fromisoformat(exp_str)
@@ -23,10 +23,8 @@ def auto_cooldown(func):
                 print(f"⏳ Attente forcée : {wait_time + 0.5:.2f}s...")
                 await asyncio.sleep(wait_time + 0.5)
 
-        # 2. Action
         response = await func(self, *args, **kwargs)
 
-        # 3. Recherche récursive de la clé cooldown_expiration
         if response.status_code == 200:
             json_data = response.json()
 
@@ -51,7 +49,6 @@ def auto_cooldown(func):
             if new_exp:
                 self.cooldown_expiration = new_exp
             else:
-                # Si on ne trouve vraiment rien, on affiche TOUT pour comprendre
                 print(f"DEBUG COMPLET : {json_data}")
 
         return response
@@ -59,7 +56,6 @@ def auto_cooldown(func):
     return wrapper
 
 
-# --- CLIENT API ---
 class AsyncApiClient:
     def __init__(self, token: str, base_url: str = "https://api.artifactsmmo.com"):
         self.base_url = base_url
@@ -68,7 +64,6 @@ class AsyncApiClient:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-        # Client HTTP persistant pour de meilleures performances
         self.client = httpx.AsyncClient(headers=self.headers, base_url=base_url)
 
     async def close(self):
