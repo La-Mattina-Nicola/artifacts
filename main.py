@@ -1,100 +1,57 @@
 import os
 import asyncio
 from dotenv import load_dotenv
-from api.client import AsyncApiClient
-from models.world import WorldMap
-from models.character import Character, BankManager
-from models.item_manager import ItemsManager
+from models.account import Account  # Importe ta nouvelle classe Account
+from routines import gather_routine
 
-# Charge les variables du fichier .env
 load_dotenv()
 
 
-async def test():
-    load_dotenv()
-    client = AsyncApiClient(token=os.getenv("ARTIFACTS_TOKEN"))
-    world = WorldMap(client)
-    await world.init_map()
+async def main():
+    # 1. Initialisation du compte (le cerveau central)
+    # On lui passe le token, il s'occupe de créer le client, la banque, etc.
+    account = Account(token=os.getenv("ARTIFACTS_TOKEN"))
 
-    my_hero = Character("Kioyaa", client, world)
-    await my_hero.sync()
+    # 2. Chargement des données partagées (Items, Banque, Map)
+    # C'est ici qu'on fait les appels API initiaux
+    print("🚀 Initialisation du compte...")
+    await account.initialize()
 
-    # 1. Trouver le blue slime le plus proche
-    green_slime_pos = world.monsters.get("green_slime")
+    # 3. Création des personnages
+    # Ils reçoivent automatiquement l'accès à la banque et aux items via l'objet account
+    hero_names = ["Kioyaa", "Kioyaa_g", "Kio_wood", "Kio_fish", "Kio_util"]
+    heroes = [account.add_character(name) for name in hero_names]
 
-    if green_slime_pos:
-        target = world._find_nearest((my_hero.x, my_hero.y), green_slime_pos)
-        if my_hero.hp != my_hero.max_hp:
-            await my_hero.rest()
-        # 2. Se déplacer
-        if await my_hero.mover.to_coords(*target):
-            # 3. Combattre 3 fois
-            max_damage_seen = 0
-            for i in range(3):
-                if max_damage_seen > 0 and my_hero.hp <= (max_damage_seen + 5):
-                    print(
-                        f"⚖️ Risque de mort (HP: {my_hero.hp} <= Dégâts max: {max_damage_seen}). Repos..."
-                    )
-                    await my_hero.rest()
-                hp_before = my_hero.hp
-                print(f"--- Tour de farm {i + 1}/3 ---")
-                success = await my_hero.attack()
-                print(
-                    f"DEBUG: Prochain CD prévu à {my_hero.client.cooldown_expiration}"
-                )
-                if success:
-                    max_damage_seen = max(hp_before - my_hero.hp, max_damage_seen)
-                    print(
-                        f"📊 HP: {my_hero.hp}/{my_hero.max_hp} | Dégâts max enregistrés: {max_damage_seen}"
-                    )
-                else:
-                    break
+    # Utilise bien "copper_rocks" pour la recherche sur la map
+    heroes[0].default_task = lambda: gather_routine(heroes[0], "copper_rocks")
+    heroes[1].default_task = lambda: gather_routine(heroes[1], "iron_rocks")
+    heroes[2].default_task = lambda: gather_routine(heroes[2], "ash_tree")
+    heroes[3].default_task = lambda: gather_routine(heroes[3], "gudgeon_spot")
+    heroes[4].default_task = lambda: gather_routine(heroes[4], "sunflower_field")
 
-    await client.close()
+    # 4. Premier Sync et démarrage des loops
+    print("🔄 Synchronisation des personnages et démarrage des boucles...")
 
+    # On prépare les tâches : sync() d'abord, puis main_loop()
+    # On utilise asyncio.create_task pour qu'ils tournent tous en même temps
+    loop_tasks = []
+    for hero in heroes:
+        await (
+            hero.sync()
+        )  # On les sync un par un au début pour avoir les stats fraîches
 
-async def items():
+        # Optionnel : Définir une tâche par défaut ici si tu en as déjà
+        # hero.default_task = ma_fonction_de_farm
 
-    load_dotenv()
-    client = AsyncApiClient(token=os.getenv("ARTIFACTS_TOKEN"))
-    world = WorldMap(client)
-    await world.init_map()
-    shared_bank = BankManager(client)
-    await shared_bank.sync()
+        loop_tasks.append(asyncio.create_task(hero.main_loop()))
 
-    items_db = ItemsManager(client)
-
-    my_hero = Character("Kioyaa", client, shared_bank, items_db, world)
-    await my_hero.sync()
-
-    if not items_db.items:
-        await items_db.update()
-
-    sword = items_db.get_by_code("copper_dagger")
-    if sword:
-        print(f"Dégâts : {sword.effects}")
-        print(f"Niveau requis : {sword.level}")
-
-    code_test = "copper_dagger"
-    mon_epee = items_db.get_by_code(code_test)
-
-    if mon_epee and my_hero:
-        if mon_epee.level <= my_hero.level:
-            print(f"⚔️ {my_hero.name} peut équiper {mon_epee.name} !")
-        else:
-            print(f"❌ Niveau trop bas pour {mon_epee.name} (Requis: {mon_epee.level})")
-    else:
-        print(
-            f"⚠️ Impossible de faire la vérification (Item {code_test} non trouvé ou Hero non synchro)"
-        )
-
-    copper_pos = world.get_nearest_resource((my_hero.x, my_hero.y), "copper_rocks")
-
-    if copper_pos:
-        print(f"Le cuivre le plus proche est en {copper_pos}")
-        await my_hero.move(*copper_pos)
+    # 5. On laisse le bot tourner indéfiniment
+    print(f"✅ {len(heroes)} héros sont en ligne !")
+    await asyncio.gather(*loop_tasks)
 
 
 if __name__ == "__main__":
-    #
-    asyncio.run(items())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Bot arrêté par l'utilisateur.")

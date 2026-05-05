@@ -18,6 +18,7 @@ class Item:
     name: str
     level: int
     type: str
+    quantity: int
     effects: List[Dict] = field(default_factory=list)
     craft: Optional[Dict] = None
 
@@ -29,6 +30,7 @@ class Item:
             name=data.get("name"),
             level=data.get("level", 0),
             type=data.get("type"),
+            quantity=data.get("quantity"),
             effects=data.get("effects", []),
             craft=data.get("craft"),
         )
@@ -194,7 +196,6 @@ class Skills:
             cooking=_skill("cooking"),
             alchemy=_skill("alchemy"),
         )
-
 
 
 VALID_SLOTS = frozenset(

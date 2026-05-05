@@ -1,5 +1,4 @@
 from abc import ABC
-from typing import Dict
 
 
 class BaseAction(ABC):
@@ -101,10 +100,13 @@ class RestAction(BaseAction):
 class GatherAction(BaseAction):
     async def collect(self):
         """Exécute une tentative de récolte sur la case actuelle."""
-        print(f"⛏️ {self.char.name} commence à récolter...")
 
         response = await self.char.client.post(f"/my/{self.char.name}/action/gathering")
 
+        # Si votre décorateur ou une sous-méthode a renvoyé True à la place de la réponse :
+        if isinstance(response, bool):
+            # Si c'est True, l'action a réussi mais on n'a plus les données JSON
+            return response
         if response.status_code == 200:
             data = response.json()["data"]
             details = data.get("details", {})
@@ -114,7 +116,6 @@ class GatherAction(BaseAction):
                 print(f"  -> +{item['quantity']} {item['code']}")
 
             self.char.inventory = data.get("character", {}).get("inventory", [])
-            self.char.client.cooldown_expiration = data.get("cooldown_expiration")
             return True
 
         elif response.status_code == 493:

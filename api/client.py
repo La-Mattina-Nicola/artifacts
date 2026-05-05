@@ -75,5 +75,5 @@ class AsyncApiClient:
         return await self.client.get(endpoint, params=params)
 
     @auto_cooldown
-    async def post(self, endpoint: str, data: dict = None):
-        return await self.client.post(endpoint, json=data)
+    async def post(self, endpoint: str, json: dict = None):
+        return await self.client.post(endpoint, json=json)

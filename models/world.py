@@ -131,8 +131,17 @@ class WorldMap:
     def get_nearest_bank(self, start_pos):
         return self._find_nearest(start_pos, self.banks)
 
-    def get_nearest_resource(self, start_pos, resource_code):
-        return self._find_nearest(start_pos, self.resources.get(resource_code, []))
+    # Dans la classe WorldMap
+    def get_nearest_resource(self, resource_code: str, start_pos: Tuple[int, int]):
+        """Trouve la coordonnée la plus proche pour un code de ressource donné."""
+        # 1. On récupère la liste des positions indexées
+        target_list = self.resources.get(resource_code, [])
+
+        if not target_list:
+            return None
+
+        # 2. On utilise la fonction de calcul de distance Manhattan
+        return self._find_nearest(start_pos, target_list)
 
     def get_nearest_monster(self, start_pos, monster_code):
         return self._find_nearest(start_pos, self.monsters.get(monster_code, []))
