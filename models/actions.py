@@ -36,7 +36,7 @@ class MoveAction(BaseAction):
             old_x, old_y = self.char.x, self.char.y
             old_hp = self.char.hp
             old_gold = self.char.gold
-            
+
             if char_data:
                 self.char.x = char_data.get("x", self.char.x)
                 self.char.y = char_data.get("y", self.char.y)
@@ -47,7 +47,7 @@ class MoveAction(BaseAction):
                 # Si pas de data.characters, mettre à jour les coords directement
                 self.char.x = int(x)
                 self.char.y = int(y)
-                
+
             # # Logs détaillés
             # if (old_x, old_y) != (self.char.x, self.char.y):
             #     print(f"Position: ({old_x}, {old_y}) → ({self.char.x}, {self.char.y})")
@@ -55,7 +55,7 @@ class MoveAction(BaseAction):
             #     print(f"HP: {old_hp} → {self.char.hp}")
             # if old_gold != self.char.gold:
             #     print(f"Gold: {old_gold} → {self.char.gold}")
-                
+
             return True
         else:
             error_code = res_json.get("error", {}).get("code")
@@ -91,7 +91,7 @@ class FightAction(BaseAction):
         response = await self.char.client.post(f"/my/{self.char.name}/action/fight")
         res_json = response.json()
 
-            if response.status_code == 200:
+        if response.status_code == 200:
             data = res_json.get("data", {})
 
             # Mise à jour du character depuis data.characters[0]
@@ -101,12 +101,12 @@ class FightAction(BaseAction):
                 old_hp = self.char.hp
                 old_level = self.char.level
                 old_gold = self.char.gold
-                
+
                 self.char.hp = char_data.get("hp", self.char.hp)
                 self.char.level = char_data.get("level", self.char.level)
                 self.char.gold = char_data.get("gold", self.char.gold)
                 self.char.inventory = char_data.get("inventory", self.char.inventory)
-                
+
                 # # Logs détaillés
                 # if old_hp != self.char.hp:
                 #     print(f"HP: {old_hp} → {self.char.hp}")
@@ -166,11 +166,11 @@ class RestAction(BaseAction):
                 old_hp = self.char.hp
                 old_gold = self.char.gold
                 old_level = self.char.level
-                
+
                 self.char.hp = char_data.get("hp", self.char.hp)
                 self.char.gold = char_data.get("gold", self.char.gold)
                 self.char.level = char_data.get("level", self.char.level)
-                
+
                 # # Logs détaillés
                 # if old_hp != self.char.hp:
                 #     print(f"HP: {old_hp} → {self.char.hp}")
@@ -209,19 +209,29 @@ class GatherAction(BaseAction):
             characters = data.get("characters", [])
             if characters:
                 char_data = characters[0]
-                old_inventory = self.char.inventory.copy() if self.char.inventory else []
-                old_inv_total = sum(item.get("quantity", 0) for item in old_inventory if item.get("code"))
-                
+                old_inventory = (
+                    self.char.inventory.copy() if self.char.inventory else []
+                )
+                old_inv_total = sum(
+                    item.get("quantity", 0)
+                    for item in old_inventory
+                    if item.get("code")
+                )
+
                 self.char.inventory = char_data.get("inventory", self.char.inventory)
-                new_inv_total = sum(item.get("quantity", 0) for item in self.char.inventory if item.get("code"))
-                
+                new_inv_total = sum(
+                    item.get("quantity", 0)
+                    for item in self.char.inventory
+                    if item.get("code")
+                )
+
                 old_hp = self.char.hp
                 self.char.hp = char_data.get("hp", self.char.hp)
                 old_gold = self.char.gold
                 self.char.gold = char_data.get("gold", self.char.gold)
                 old_level = self.char.level
                 self.char.level = char_data.get("level", self.char.level)
-                
+
                 # # Logs détaillés de la mise à jour
                 # if old_inv_total != new_inv_total:
                 #     print(f"Inventaire: {old_inv_total} items → {new_inv_total} items ({self.char.inventory_max_items} max)")
@@ -241,8 +251,14 @@ class GatherAction(BaseAction):
             if error_code == 493:
                 print("⚠️ La ressource n'est pas disponible sur cette case.")
             elif error_code == 497:
-                inv_total = sum(item.get("quantity", 0) for item in self.char.inventory if item.get("code"))
-                print(f"🎒 Inventaire plein ! ({inv_total}/{self.char.inventory_max_items} items)")
+                inv_total = sum(
+                    item.get("quantity", 0)
+                    for item in self.char.inventory
+                    if item.get("code")
+                )
+                print(
+                    f"🎒 Inventaire plein ! ({inv_total}/{self.char.inventory_max_items} items)"
+                )
                 # Sync pour mettre à jour l'état réel
                 await self.char.sync()
             elif error_code == 498:
