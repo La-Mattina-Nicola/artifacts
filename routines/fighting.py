@@ -1,13 +1,10 @@
 from models.character import Character
 
 
-async def gather_routine(char: Character, resource_code):
-    """
-    Une itération de la routine de récolte.
-    """
+async def fighting(char: Character, resource_code, treeshold: int = 50):
+    """Routine de farm fighting"""
 
     # 1. Si l'inventaire est plein, on va à la banque
-    # Dans gather_routine_2.py
     if char.inventory_is_full(margin=1):
         print(f"🎒 {char.name} est plein. Go banque.")
         await char.mover.to_bank()
@@ -24,8 +21,8 @@ async def gather_routine(char: Character, resource_code):
             await char.sync()
         return
 
-    # 2. Trouver la ressource la plus proche (via ton world_map)
-    pos = char.world_map.get_nearest_resource(resource_code, (char.x, char.y))
+    # 2. Trouver le monstre le plus proche
+    pos = char.world_map.get_nearest_monster(resource_code, (char.x, char.y))
     if not pos:
         print(f"❓ {resource_code} introuvable sur la map.")
         return
@@ -35,5 +32,17 @@ async def gather_routine(char: Character, resource_code):
         await char.mover.to_coords(*pos)
         return
 
-    # 4. Récolter
-    await char.gatherer.collect()  # [cite: 6, 7]
+    # 4. Se reposer si HP est bas
+    print(char)
+
+    if char.hp <= treeshold:
+        await char.rest()
+        # Après repos, re-sync pour voir le HP actuel
+        await char.sync()
+        # Si HP est toujours bas (repos échoué), ne pas attaquer
+        if char.hp <= treeshold:
+            print(f"⚠️ {char.name} a toujours HP bas ({char.hp}/{char.max_hp}), pause.")
+            return
+
+    # 5. Combattre
+    await char.attack()
