@@ -63,7 +63,12 @@ class BankManager:
                     self.content[code] -= qty
             self._update_char(char, data)
             return True
-        return False
+        else:
+            err = res.json().get("error", {})
+            error_code = err.get("code")
+            error_msg = err.get("message", "Erreur inconnue")
+            print(f"❌ Erreur retrait {char.name} ({error_code}): {error_msg}")
+            return False
 
     def _update_char(self, char, data):
         # Chercher le bon character par son nom dans data.characters
@@ -73,11 +78,11 @@ class BankManager:
                 if c.get("name") == char.name:
                     char_data = c
                     break
-        
+
         # Fallback: si pas trouvé, prendre le premier
         if not char_data and data.get("characters"):
             char_data = data["characters"][0]
-        
+
         # Fallback: ancienne structure
         if not char_data:
             char_data = data.get("character")

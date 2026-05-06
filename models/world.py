@@ -46,6 +46,7 @@ class WorldMap:
         self.banks: List[Tuple[int, int]] = []
         self.monsters: Dict[str, List[Tuple[int, int]]] = {}
         self.resources: Dict[str, List[Tuple[int, int]]] = {}
+        self.workshops: Dict[str, List[Tuple[int, int]]] = {}
 
     async def init_map(self, force_update=False):
         if not force_update and os.path.exists(self.cache_file):
@@ -105,6 +106,8 @@ class WorldMap:
                 self.monsters.setdefault(c_code, []).append(coords)
             elif c_type == "resource":
                 self.resources.setdefault(c_code, []).append(coords)
+            elif c_type == "workshop":
+                self.workshops.setdefault(c_code, []).append(coords)
 
     def _save_to_file(self, data):
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
@@ -149,6 +152,11 @@ class WorldMap:
             return None
 
         return self._find_nearest(start_pos, target_list)
+
+    def get_nearest_workshop(self, skill: str, start_pos: Tuple[int, int]):
+        """Trouve le workshop le plus proche pour un skill donné (ex: 'weaponcrafting')."""
+        target_list = self.workshops.get(skill, [])
+        return self._find_nearest(start_pos, target_list) if target_list else None
 
     def get_tile(self, x, y) -> Optional[MapTile]:
         return self.tiles.get(f"{x},{y}")

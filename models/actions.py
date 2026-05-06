@@ -11,7 +11,6 @@ class MoveAction(BaseAction):
         if int(self.char.x) == int(x) and int(self.char.y) == int(y):
             return True
 
-        print(f"🏃 {self.char.name} se déplace vers ({x}, {y})...")
         response = await self.char.client.post(
             f"/my/{self.char.name}/action/move", {"x": int(x), "y": int(y)}
         )
@@ -32,10 +31,6 @@ class MoveAction(BaseAction):
             # Fallback: si pas trouvé, prendre le premier
             if not char_data and data.get("characters"):
                 char_data = data["characters"][0]
-
-            old_x, old_y = self.char.x, self.char.y
-            old_hp = self.char.hp
-            old_gold = self.char.gold
 
             if char_data:
                 self.char.x = char_data.get("x", self.char.x)
@@ -87,17 +82,25 @@ class MoveAction(BaseAction):
 class FightAction(BaseAction):
     async def attack(self):
         """Lance un combat sur la case actuelle."""
-        print(f"⚔️ {self.char.name} engage le combat...")
         response = await self.char.client.post(f"/my/{self.char.name}/action/fight")
         res_json = response.json()
 
         if response.status_code == 200:
             data = res_json.get("data", {})
 
-            # Mise à jour du character depuis data.characters[0]
+            # Chercher le bon character par son nom dans data.characters
+            char_data = None
             characters = data.get("characters", [])
             if characters:
-                char_data = characters[0]
+                for c in characters:
+                    if c.get("name") == self.char.name:
+                        char_data = c
+                        break
+                # Fallback: si pas trouvé, prendre le premier
+                if not char_data:
+                    char_data = characters[0]
+
+            if char_data:
                 old_hp = self.char.hp
                 old_level = self.char.level
                 old_gold = self.char.gold
@@ -130,8 +133,11 @@ class FightAction(BaseAction):
 
             if result == "win":
                 print(f"✅ Victoire ! XP gagnée : {xp}")
-                for drop in drops:
-                    print(f"📦 Drop : {drop.get('quantity')}x {drop.get('code')}")
+                if drops:
+                    str = " | ".join(
+                        f"{item['code']} x{item['quantity']}" for item in drops
+                    )
+                    print(f"📦 {self.char.name:10} - {str}")
             else:
                 print(f"💀 Combat terminé. Résultat : {result}")
 
@@ -149,7 +155,6 @@ class FightAction(BaseAction):
 
 class RestAction(BaseAction):
     async def rest(self):
-        print(f"⏸️ {self.char.name} se repose ...")
         response = await self.char.client.post(f"/my/{self.char.name}/action/rest")
 
         res_json = response.json()
@@ -159,10 +164,19 @@ class RestAction(BaseAction):
             cooldown_data = data.get("cooldown", {})
             remaining = cooldown_data.get("remaining_seconds", 0)
 
-            # Mise à jour du HP et stats depuis data.characters[0]
+            # Chercher le bon character par son nom dans data.characters
+            char_data = None
             characters = data.get("characters", [])
             if characters:
-                char_data = characters[0]
+                for c in characters:
+                    if c.get("name") == self.char.name:
+                        char_data = c
+                        break
+                # Fallback: si pas trouvé, prendre le premier
+                if not char_data:
+                    char_data = characters[0]
+
+            if char_data:
                 old_hp = self.char.hp
                 old_gold = self.char.gold
                 old_level = self.char.level
@@ -195,6 +209,7 @@ class RestAction(BaseAction):
 class GatherAction(BaseAction):
     async def collect(self):
         """Exécute une tentative de récolte sur la case actuelle."""
+
         response = await self.char.client.post(f"/my/{self.char.name}/action/gathering")
 
         if isinstance(response, bool):
@@ -205,10 +220,25 @@ class GatherAction(BaseAction):
         if response.status_code == 200:
             data = res_json.get("data", {})
 
-            # Mise à jour de l'inventaire et stats depuis data.characters[0]
+            details_data = data.get("details", {})
+            loot = details_data.get("items", [])
+            if loot:
+                str = " | ".join(f"{item['code']} x{item['quantity']}" for item in loot)
+                print(f"📦 {self.char.name:10}  - {str}")
+
+            # Chercher le bon character par son nom dans data.characters
+            char_data = None
             characters = data.get("characters", [])
             if characters:
-                char_data = characters[0]
+                for c in characters:
+                    if c.get("name") == self.char.name:
+                        char_data = c
+                        break
+                # Fallback: si pas trouvé, prendre le premier
+                if not char_data:
+                    char_data = characters[0]
+
+            if char_data:
                 old_inventory = (
                     self.char.inventory.copy() if self.char.inventory else []
                 )
@@ -270,3 +300,60 @@ class GatherAction(BaseAction):
                 print(f"Erreur {error_code}: {error_msg}")
 
         return False
+
+
+class CraftAction(BaseAction):
+    async def craft(self, item_code: str, quantity: int = 1) -> bool:
+        """Craft `quantity` fois l'item `item_code` sur la case actuelle."""
+        response = await self.char.client.post(
+            f"/my/{self.char.name}/action/crafting",
+            {"code": item_code, "quantity": quantity},
+        )
+        res_json = response.json()
+
+        if response.status_code == 200:
+            data = res_json.get("data", {})
+
+            details = data.get("details", {})
+            xp = details.get("xp", 0)
+            items_crafted = details.get("items", [])
+
+            if items_crafted:
+                items_str = " | ".join(
+                    f"{i['code']} x{i['quantity']}" for i in items_crafted
+                )
+                print(f"🔨 {self.char.name:10} - Crafté : {items_str} (+{xp} XP)")
+
+            # Mise à jour du personnage
+            char_data = data.get("character")
+            if char_data:
+                self.char.hp = char_data.get("hp", self.char.hp)
+                self.char.gold = char_data.get("gold", self.char.gold)
+                self.char.level = char_data.get("level", self.char.level)
+                self.char.inventory = char_data.get("inventory", self.char.inventory)
+
+            return True
+
+        else:
+            err = res_json.get("error", {})
+            error_code = err.get("code")
+            msg = err.get("message", "Erreur inconnue")
+
+            if error_code == 478:
+                print(
+                    f"❌ {self.char.name} — Matériaux manquants pour crafter {item_code}."
+                )
+            elif error_code == 493:
+                print(
+                    f"❌ {self.char.name} — Niveau de skill trop bas pour {item_code}."
+                )
+            elif error_code == 598:
+                print(f"❌ {self.char.name} — Pas de workshop sur cette case.")
+            elif error_code == 497:
+                print(f"❌ {self.char.name} — Inventaire plein, impossible de crafter.")
+            elif error_code == 499:
+                await self.char.sync()
+            else:
+                print(f"❌ Erreur {error_code}: {msg}")
+
+            return False

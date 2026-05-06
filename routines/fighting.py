@@ -1,7 +1,7 @@
 from models.character import Character
 
 
-async def fighting(char: Character, resource_code, treeshold: int = 50):
+async def fighting(char: Character, resource_code, treeshold: int = 100):
     """Routine de farm fighting"""
 
     # 1. Si l'inventaire est plein, on va à la banque
@@ -33,8 +33,6 @@ async def fighting(char: Character, resource_code, treeshold: int = 50):
         return
 
     # 4. Se reposer si HP est bas
-    print(char)
-
     if char.hp <= treeshold:
         await char.rest()
         # Après repos, re-sync pour voir le HP actuel

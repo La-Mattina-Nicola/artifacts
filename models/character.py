@@ -1,7 +1,13 @@
 import asyncio
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, TYPE_CHECKING
-from models.actions import MoveAction, FightAction, RestAction, GatherAction
+from models.actions import (
+    MoveAction,
+    FightAction,
+    RestAction,
+    GatherAction,
+    CraftAction,
+)
 from datetime import datetime, timezone
 
 if TYPE_CHECKING:
@@ -55,6 +61,7 @@ class Character:
         self.fighter = FightAction(self)
         self.rester = RestAction(self)
         self.gatherer = GatherAction(self)
+        self.crafter = CraftAction(self)
 
         self.default_task = None
 
@@ -102,15 +109,38 @@ class Character:
             old_x, old_y = self.x, self.y
             old_hp, old_max_hp = self.hp, self.max_hp
             old_level, old_gold = self.level, self.gold
-            old_inv_total = sum(item.get("quantity", 0) for item in self.inventory if item.get("code")) if self.inventory else 0
-            
+            old_inv_total = (
+                sum(
+                    item.get("quantity", 0)
+                    for item in self.inventory
+                    if item.get("code")
+                )
+                if self.inventory
+                else 0
+            )
+
             self.x, self.y = data["x"], data["y"]
             self.hp, self.max_hp = data["hp"], data["max_hp"]
             self.level, self.gold = data["level"], data["gold"]
             self.inventory = data["inventory"]
             self.inventory_max_items = data["inventory_max_items"]
             self.cooldown_expiration = data["cooldown_expiration"]
-            
+
+            # Dans sync(), après self.inventory_max_items = ...
+            for skill in [
+                "mining",
+                "woodcutting",
+                "fishing",
+                "weaponcrafting",
+                "gearcrafting",
+                "jewelrycrafting",
+                "cooking",
+                "alchemy",
+            ]:
+                setattr(self, f"{skill}_level", data.get(f"{skill}_level", 1))
+                setattr(self, f"{skill}_xp", data.get(f"{skill}_xp", 0))
+                setattr(self, f"{skill}_max_xp", data.get(f"{skill}_max_xp", 150))
+
             # # Logs détaillés du sync
             # new_inv_total = sum(item.get("quantity", 0) for item in self.inventory if item.get("code")) if self.inventory else 0
             # if (old_x, old_y) != (self.x, self.y):
@@ -123,7 +153,7 @@ class Character:
             #     print(f"[SYNC] Gold: {old_gold} → {self.gold}")
             # if old_inv_total != new_inv_total:
             #     print(f"[SYNC] Inventaire: {old_inv_total} items → {new_inv_total} items ({self.inventory_max_items} max)")
-            
+
             return True
         return False
 
@@ -144,6 +174,9 @@ class Character:
 
     def rest(self):
         return self.rester.rest()
+
+    def craft(self, item_code: str, quantity: int = 1):
+        return self.crafter.craft(item_code, quantity)
 
     def __str__(self):
         return f"Name: {self.name} | {self.hp}/{self.max_hp} || {self.is_working} - {self.cooldown_expiration}"

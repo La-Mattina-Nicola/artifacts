@@ -2,7 +2,7 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from models.account import Account  # Importe ta nouvelle classe Account
-from routines import gathering, fighting
+from routines import gathering, fighting, crafting
 
 load_dotenv()
 
@@ -16,11 +16,11 @@ async def main():
     hero_names = ["Kioyaa", "Kioyaa_g", "Kio_wood", "Kio_fish", "Kio_util"]
     heroes = [account.add_character(name) for name in hero_names]
 
-    heroes[0].default_task = lambda: fighting(heroes[0], "green_slime")
-    heroes[1].default_task = lambda: gathering(heroes[1], "ash_tree")
-    heroes[2].default_task = lambda: gathering(heroes[2], "ash_tree")
-    heroes[3].default_task = lambda: gathering(heroes[3], "ash_tree")
-    heroes[4].default_task = lambda: gathering(heroes[4], "ash_tree")
+    heroes[0].default_task = lambda: gathering(heroes[0], "copper_rocks")
+    heroes[1].default_task = lambda: fighting(heroes[1], "blue_slime")
+    heroes[2].default_task = lambda: fighting(heroes[2], "blue_slime")
+    heroes[3].default_task = lambda: gathering(heroes[3], "copper_rocks")
+    heroes[4].default_task = lambda: gathering(heroes[4], "copper_rocks")
 
     # On prépare les tâches : sync() d'abord, puis main_loop()
     # On utilise asyncio.create_task pour qu'ils tournent tous en même temps
