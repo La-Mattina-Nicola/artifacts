@@ -9,11 +9,20 @@ from models.character import Character
 
 class Account:
     def __init__(self, token: str):
-        self.client = AsyncApiClient(token=token)
+        self.token = token  # Stocker le token[cite: 2]
+        self.client = AsyncApiClient(
+            token=token
+        )  # Client "maître" pour les infos globales
         self.bank = BankManager(self.client)
         self.items_db = ItemsManager(self.client)
         self.world = WorldMap(self.client)
         self.characters: Dict[str, Character] = {}
+
+    def add_character(self, name: str) -> Character:
+        # Le personnage créera son propre client dans son __post_init__[cite: 1, 2]
+        char = Character(name=name, account=self)
+        self.characters[name] = char
+        return char
 
     async def initialize(self):
         """Initialise les données globales avant de lancer les personnages."""
@@ -23,9 +32,3 @@ class Account:
             self.bank.sync(),
             self.world.init_map(),
         )
-
-    def add_character(self, name: str) -> Character:
-        """Crée un personnage lié à ce compte."""
-        char = Character(name=name, account=self)
-        self.characters[name] = char
-        return char

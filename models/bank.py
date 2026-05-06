@@ -1,4 +1,5 @@
 from typing import Dict
+from models.character import Character
 
 
 class BankManager:
@@ -30,15 +31,13 @@ class BankManager:
             self.gold = res_gold.json()["data"]["quantity"]
         print(f"🏦 Banque synchronisée : {len(self.content)} types d'items.")
 
-    # Version optimisée : Un seul appel pour tout le sac
-    async def _execute_deposit(self, char, items: list):
+    async def _execute_deposit(self, char: Character, items: list):
         endpoint = f"/my/{char.name}/action/bank/deposit/item"
+
         res = await char.client.post(endpoint, json=items)
 
         if res.status_code == 200:
             data = res.json().get("data", {})
-            # On vérifie si 'character' existe avant de l'utiliser
-            char_data = data.get("character")
 
             for item in items:
                 print(f"📦 {char.name} a déposé {item['quantity']}x {item['code']}")
@@ -46,27 +45,52 @@ class BankManager:
                     self.content.get(item["code"], 0) + item["quantity"]
                 )
 
-            if char_data:
-                self._update_char(char, char_data)
+            self._update_char(char, data)
             return True
         else:
             print(f"❌ Erreur dépôt groupé {char.name} ({res.status_code}): {res.text}")
             return False
 
     async def _execute_withdraw(self, char, items: list):
-        res = await self.client.post(
+        res = await char.client.post(
             f"/my/{char.name}/action/bank/withdraw/item", json=items
         )
         if res.status_code == 200:
+            data = res.json().get("data", {})
             for item in items:
                 code, qty = item["code"], item["quantity"]
                 if code in self.content:
                     self.content[code] -= qty
-            self._update_char(char, res.json()["data"])
+            self._update_char(char, data)
             return True
         return False
 
     def _update_char(self, char, data):
-        char.inventory = data["character"]["inventory"]
-        char.gold = data["character"]["gold"]
-        char.client.cooldown_expiration = data["cooldown_expiration"]
+        # Chercher le bon character par son nom dans data.characters
+        char_data = None
+        if data.get("characters"):
+            for c in data["characters"]:
+                if c.get("name") == char.name:
+                    char_data = c
+                    break
+        
+        # Fallback: si pas trouvé, prendre le premier
+        if not char_data and data.get("characters"):
+            char_data = data["characters"][0]
+        
+        # Fallback: ancienne structure
+        if not char_data:
+            char_data = data.get("character")
+
+        if char_data:
+            char.inventory = char_data.get("inventory", char.inventory)
+            char.gold = char_data.get("gold", char.gold)
+            char.hp = char_data.get("hp", char.hp)
+            char.level = char_data.get("level", char.level)
+
+        # Cooldown depuis data.cooldown ou data.cooldown_expiration
+        cooldown_data = data.get("cooldown", {})
+        if cooldown_data.get("expiration"):
+            char.cooldown_expiration = cooldown_data.get("expiration")
+        elif data.get("cooldown_expiration"):
+            char.cooldown_expiration = data.get("cooldown_expiration")
