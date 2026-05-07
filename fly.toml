@@ -1,0 +1,16 @@
+# fly.toml app configuration file generated for artifacts-buoyant-sound-225 on 2026-05-06T23:40:56+02:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+app = 'artifacts-buoyant-sound-225'
+primary_region = 'cdg'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[[services]]
+  internal_port = 8080
+  processes = ['worker']
+
+[processes]
+  worker = 'python main.py'
