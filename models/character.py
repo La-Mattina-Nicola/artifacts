@@ -1,13 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, TYPE_CHECKING
-from models.actions import (
-    MoveAction,
-    FightAction,
-    RestAction,
-    GatherAction,
-    CraftAction,
-)
 from datetime import datetime, timezone
 
 if TYPE_CHECKING:
@@ -51,6 +44,13 @@ class Character:
 
     def __post_init__(self):
         from api.client import AsyncApiClient
+        from models.actions import (
+            MoveAction,
+            FightAction,
+            RestAction,
+            GatherAction,
+            CraftAction,
+        )
 
         self.client = AsyncApiClient(token=self.account.token, character=self)
         self.world_map = self.account.world
@@ -101,6 +101,50 @@ class Character:
             except Exception as e:
                 print(f"⚠️ Erreur {self.name}: {e}")
                 await asyncio.sleep(2)
+
+    def update_from_api(self, data: dict):
+        """Mets à jour le character à partir des données API."""
+        # Champs directs simples
+        self.x = data.get("x", self.x)
+        self.y = data.get("y", self.y)
+        self.hp = data.get("hp", self.hp)
+        self.max_hp = data.get("max_hp", self.max_hp)
+        self.level = data.get("level", self.level)
+        self.gold = data.get("gold", self.gold)
+        self.inventory = data.get("inventory", self.inventory)
+        self.inventory_max_items = data.get(
+            "inventory_max_items", self.inventory_max_items
+        )
+        self.cooldown_expiration = data.get(
+            "cooldown_expiration", self.cooldown_expiration
+        )
+
+        # Mettre à jour les skills dynamiquement (comme dans sync)
+        for skill in [
+            "mining",
+            "woodcutting",
+            "fishing",
+            "weaponcrafting",
+            "gearcrafting",
+            "jewelrycrafting",
+            "cooking",
+            "alchemy",
+        ]:
+            setattr(
+                self,
+                f"{skill}_level",
+                data.get(f"{skill}_level", getattr(self, f"{skill}_level", 1)),
+            )
+            setattr(
+                self,
+                f"{skill}_xp",
+                data.get(f"{skill}_xp", getattr(self, f"{skill}_xp", 0)),
+            )
+            setattr(
+                self,
+                f"{skill}_max_xp",
+                data.get(f"{skill}_max_xp", getattr(self, f"{skill}_max_xp", 150)),
+            )
 
     async def sync(self):
         response = await self.client.get(f"/characters/{self.name}")
@@ -177,6 +221,9 @@ class Character:
 
     def craft(self, item_code: str, quantity: int = 1):
         return self.crafter.craft(item_code, quantity)
+
+    def assign_task(self, task):
+        pass
 
     def __str__(self):
         return f"Name: {self.name} | {self.hp}/{self.max_hp} || {self.is_working} - {self.cooldown_expiration}"
