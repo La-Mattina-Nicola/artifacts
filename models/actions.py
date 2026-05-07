@@ -1,8 +1,14 @@
 from abc import ABC
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from models.character import Character
 
 
 class BaseAction(ABC):
-    def __init__(self, character):
+    char: "Character"
+
+    def __init__(self, character: "Character"):
         self.char = character
 
 
@@ -19,38 +25,7 @@ class MoveAction(BaseAction):
 
         if response.status_code == 200:
             data = res_json.get("data", {})
-
-            # Chercher le bon character par son nom dans data.characters
-            char_data = None
-            if data.get("characters"):
-                for c in data["characters"]:
-                    if c.get("name") == self.char.name:
-                        char_data = c
-                        break
-
-            # Fallback: si pas trouvé, prendre le premier
-            if not char_data and data.get("characters"):
-                char_data = data["characters"][0]
-
-            if char_data:
-                self.char.x = char_data.get("x", self.char.x)
-                self.char.y = char_data.get("y", self.char.y)
-                self.char.hp = char_data.get("hp", self.char.hp)
-                self.char.level = char_data.get("level", self.char.level)
-                self.char.gold = char_data.get("gold", self.char.gold)
-            else:
-                # Si pas de data.characters, mettre à jour les coords directement
-                self.char.x = int(x)
-                self.char.y = int(y)
-
-            # # Logs détaillés
-            # if (old_x, old_y) != (self.char.x, self.char.y):
-            #     print(f"Position: ({old_x}, {old_y}) → ({self.char.x}, {self.char.y})")
-            # if old_hp != self.char.hp:
-            #     print(f"HP: {old_hp} → {self.char.hp}")
-            # if old_gold != self.char.gold:
-            #     print(f"Gold: {old_gold} → {self.char.gold}")
-
+            self.char.update_from_api(data["character"])
             return True
         else:
             error_code = res_json.get("error", {}).get("code")
@@ -89,34 +64,11 @@ class FightAction(BaseAction):
             data = res_json.get("data", {})
 
             # Chercher le bon character par son nom dans data.characters
-            char_data = None
             characters = data.get("characters", [])
             if characters:
-                for c in characters:
-                    if c.get("name") == self.char.name:
-                        char_data = c
-                        break
-                # Fallback: si pas trouvé, prendre le premier
-                if not char_data:
-                    char_data = characters[0]
-
-            if char_data:
-                old_hp = self.char.hp
-                old_level = self.char.level
-                old_gold = self.char.gold
-
-                self.char.hp = char_data.get("hp", self.char.hp)
-                self.char.level = char_data.get("level", self.char.level)
-                self.char.gold = char_data.get("gold", self.char.gold)
-                self.char.inventory = char_data.get("inventory", self.char.inventory)
-
-                # # Logs détaillés
-                # if old_hp != self.char.hp:
-                #     print(f"HP: {old_hp} → {self.char.hp}")
-                # if old_level != self.char.level:
-                #     print(f"Level: {old_level} → {self.char.level}")
-                # if old_gold != self.char.gold:
-                #     print(f"Gold: {old_gold} → {self.char.gold}")
+                for c in data.get("characters", []):
+                    if c["name"] == self.char.name:
+                        self.char.update_from_api(c)
 
             # Gestion du résultat du combat
             fight_data = data.get("fight", {})
@@ -164,34 +116,7 @@ class RestAction(BaseAction):
             cooldown_data = data.get("cooldown", {})
             remaining = cooldown_data.get("remaining_seconds", 0)
 
-            # Chercher le bon character par son nom dans data.characters
-            char_data = None
-            characters = data.get("characters", [])
-            if characters:
-                for c in characters:
-                    if c.get("name") == self.char.name:
-                        char_data = c
-                        break
-                # Fallback: si pas trouvé, prendre le premier
-                if not char_data:
-                    char_data = characters[0]
-
-            if char_data:
-                old_hp = self.char.hp
-                old_gold = self.char.gold
-                old_level = self.char.level
-
-                self.char.hp = char_data.get("hp", self.char.hp)
-                self.char.gold = char_data.get("gold", self.char.gold)
-                self.char.level = char_data.get("level", self.char.level)
-
-                # # Logs détaillés
-                # if old_hp != self.char.hp:
-                #     print(f"HP: {old_hp} → {self.char.hp}")
-                # if old_gold != self.char.gold:
-                #     print(f"Gold: {old_gold} → {self.char.gold}")
-                # if old_level != self.char.level:
-                #     print(f"Level: {old_level} → {self.char.level}")
+            self.char.update_from_api(data["character"])
 
             print(f"✅ Repos terminé ! Attente de {remaining}s avant prochain cooldown")
             return True
@@ -226,52 +151,7 @@ class GatherAction(BaseAction):
                 str = " | ".join(f"{item['code']} x{item['quantity']}" for item in loot)
                 print(f"📦 {self.char.name:10}  - {str}")
 
-            # Chercher le bon character par son nom dans data.characters
-            char_data = None
-            characters = data.get("characters", [])
-            if characters:
-                for c in characters:
-                    if c.get("name") == self.char.name:
-                        char_data = c
-                        break
-                # Fallback: si pas trouvé, prendre le premier
-                if not char_data:
-                    char_data = characters[0]
-
-            if char_data:
-                old_inventory = (
-                    self.char.inventory.copy() if self.char.inventory else []
-                )
-                old_inv_total = sum(
-                    item.get("quantity", 0)
-                    for item in old_inventory
-                    if item.get("code")
-                )
-
-                self.char.inventory = char_data.get("inventory", self.char.inventory)
-                new_inv_total = sum(
-                    item.get("quantity", 0)
-                    for item in self.char.inventory
-                    if item.get("code")
-                )
-
-                old_hp = self.char.hp
-                self.char.hp = char_data.get("hp", self.char.hp)
-                old_gold = self.char.gold
-                self.char.gold = char_data.get("gold", self.char.gold)
-                old_level = self.char.level
-                self.char.level = char_data.get("level", self.char.level)
-
-                # # Logs détaillés de la mise à jour
-                # if old_inv_total != new_inv_total:
-                #     print(f"Inventaire: {old_inv_total} items → {new_inv_total} items ({self.char.inventory_max_items} max)")
-                # if old_hp != self.char.hp:
-                #     print(f"HP: {old_hp} → {self.char.hp}")
-                # if old_gold != self.char.gold:
-                #     print(f"Gold: {old_gold} → {self.char.gold}")
-                # if old_level != self.char.level:
-                #     print(f"Level: {old_level} → {self.char.level}")
-
+            self.char.update_from_api(data["character"])
             return True
 
         else:
@@ -324,13 +204,7 @@ class CraftAction(BaseAction):
                 )
                 print(f"🔨 {self.char.name:10} - Crafté : {items_str} (+{xp} XP)")
 
-            # Mise à jour du personnage
-            char_data = data.get("character")
-            if char_data:
-                self.char.hp = char_data.get("hp", self.char.hp)
-                self.char.gold = char_data.get("gold", self.char.gold)
-                self.char.level = char_data.get("level", self.char.level)
-                self.char.inventory = char_data.get("inventory", self.char.inventory)
+            self.char.update_from_api(data["character"])
 
             return True
 
