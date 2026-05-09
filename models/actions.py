@@ -148,8 +148,8 @@ class GatherAction(BaseAction):
             details_data = data.get("details", {})
             loot = details_data.get("items", [])
             if loot:
-                str = " | ".join(f"{item['code']} x{item['quantity']}" for item in loot)
-                print(f"📦 {self.char.name:10}  - {str}")
+                str = " | ".join(f"x{item['quantity']} {item['code']}" for item in loot)
+                print(f"📦 {self.char.name:7} - {str}")
 
             self.char.update_from_api(data["character"])
             return True
