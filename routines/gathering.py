@@ -1,11 +1,14 @@
 from models.character import Character
+from .utils import cancellable
 
 
+@cancellable
 async def gathering(char: Character, resource_code):
     """
     Une itération de la routine de récolte.
     """
 
+    await char.sync()
     # 1. Si l'inventaire est plein, on va à la banque et on dépose
     if char.inventory_is_full(margin=0):
         print(f"🎒 {char.name} est plein. Go banque.")

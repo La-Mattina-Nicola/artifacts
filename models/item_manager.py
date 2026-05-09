@@ -12,25 +12,52 @@ class ItemsManager:
         self.items: Dict[str, Item] = {}
         self.load()
 
-    def load(self):
-        """Charge les items depuis le fichier JSON vers des objets Item."""
-        if os.path.exists(self.cache_file):
-            try:
-                with open(self.cache_file, "r", encoding="utf-8") as f:
-                    raw_data = json.load(f)
-                    self.items = {
-                        code: Item.from_dict(d) for code, d in raw_data.items()
-                    }
-                print(f"📦 {len(self.items)} items chargés depuis le cache.")
-            except Exception as e:
-                print(f"⚠️ Erreur lors du chargement du cache : {e}")
-        else:
-            print("⚠️ Aucun cache d'items trouvé. Pensez à lancer update().")
+    # ------------------------------------------------------------------
+    # Chargement / sauvegarde
+    # ------------------------------------------------------------------
+
+    def load(self) -> bool:
+        """
+        Charge les items depuis le cache JSON.
+        Retourne True si le cache existait et a été chargé, False sinon.
+        """
+        if not os.path.exists(self.cache_file):
+            print("⚠️  Aucun cache d'items trouvé.")
+            return False
+
+        try:
+            with open(self.cache_file, "r", encoding="utf-8") as f:
+                raw_data = json.load(f)
+            self.items = {code: Item.from_dict(d) for code, d in raw_data.items()}
+            print(f"📦 {len(self.items)} items chargés depuis le cache.")
+            return True
+        except Exception as e:
+            print(f"⚠️  Erreur lors du chargement du cache : {e}")
+            return False
+
+    def save(self):
+        """Sauvegarde tous les items en JSON (données complètes)."""
+        os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+        with open(self.cache_file, "w", encoding="utf-8") as f:
+            json.dump(
+                {code: item.to_dict() for code, item in self.items.items()},
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+        print(f"💾 Cache sauvegardé : {len(self.items)} items → {self.cache_file}")
+
+    # ------------------------------------------------------------------
+    # Mise à jour depuis l'API
+    # ------------------------------------------------------------------
 
     async def update(self):
-        """Récupère TOUS les items de l'API et rafraîchit le cache."""
+        """
+        Récupère TOUS les items de l'API page par page et rafraîchit le cache.
+        À appeler explicitement quand une mise à jour est nécessaire.
+        """
         print("🔄 Mise à jour de la base de données des items via l'API...")
-        all_items_objects = {}
+        fetched: Dict[str, Item] = {}
         page = 1
 
         while True:
@@ -38,30 +65,36 @@ class ItemsManager:
                 "/items", params={"page": page, "size": 100}
             )
             if response.status_code != 200:
+                print(f"❌ Erreur HTTP {response.status_code} à la page {page}")
                 break
 
             data = response.json()
             for item_data in data.get("data", []):
-                all_items_objects[item_data["code"]] = Item.from_dict(item_data)
+                fetched[item_data["code"]] = Item.from_dict(item_data)
 
             total_pages = data.get("pages", 1)
-            print(f"📥 Page {page}/{total_pages} récupérée...")
+            print(f"  📥 Page {page}/{total_pages} — {len(data.get('data', []))} items")
 
             if page >= total_pages:
                 break
             page += 1
 
-        self.items = all_items_objects
+        self.items = fetched
         self.save()
-        print(f"✅ Base d'items mise à jour : {len(self.items)} objets enregistrés.")
+        print(f"✅ Base d'items mise à jour : {len(self.items)} items enregistrés.")
 
-    def save(self):
-        """Sauvegarde les objets Item en JSON (en les convertissant en dict)."""
-        os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-        dict_to_save = {code: item.to_dict() for code, item in self.items.items()}
+    async def load_or_update(self):
+        """
+        Charge le cache s'il existe, sinon lance une mise à jour API.
+        C'est la méthode à appeler dans Account.initialize() pour éviter
+        les appels API inutiles.
+        """
+        if not self.load():
+            await self.update()
 
-        with open(self.cache_file, "w", encoding="utf-8") as f:
-            json.dump(dict_to_save, f, indent=4)
+    # ------------------------------------------------------------------
+    # Recherche
+    # ------------------------------------------------------------------
 
     def get_by_code(self, code: str) -> Optional[Item]:
         return self.items.get(code)
@@ -70,8 +103,11 @@ class ItemsManager:
         self,
         name: str = None,
         min_level: int = 0,
+        max_level: int = None,
         item_type: str = None,
+        subtype: str = None,
         craft_skill: str = None,
+        tradeable: bool = None,
     ) -> List[Item]:
         results = list(self.items.values())
 
@@ -79,14 +115,39 @@ class ItemsManager:
             results = [i for i in results if name.lower() in i.name.lower()]
         if min_level > 0:
             results = [i for i in results if i.level >= min_level]
+        if max_level is not None:
+            results = [i for i in results if i.level <= max_level]
         if item_type:
             results = [i for i in results if i.type == item_type]
+        if subtype:
+            results = [i for i in results if i.subtype == subtype]
         if craft_skill:
-            results = [
-                i for i in results if i.craft and i.craft.get("skill") == craft_skill
-            ]
+            results = [i for i in results if i.craft_skill == craft_skill]
+        if tradeable is not None:
+            results = [i for i in results if i.tradeable == tradeable]
 
         return sorted(results, key=lambda i: i.level)
 
     def get_craftable_items(self, skill: str) -> List[Item]:
+        """Tous les items craftables avec un skill donné, triés par level."""
         return self.search(craft_skill=skill)
+
+    def get_ingredients_for(self, item_code: str) -> List[Item]:
+        """
+        Retourne les objets Item correspondant aux ingrédients de craft,
+        avec la quantité nécessaire injectée dans item.quantity.
+        """
+        item = self.get_by_code(item_code)
+        if not item or not item.is_craftable:
+            return []
+
+        result = []
+        for ingredient in item.craft_ingredients:
+            ing = self.get_by_code(ingredient["code"])
+            if ing:
+                # On crée une copie légère avec la quantité requise
+                import dataclasses
+
+                ing_with_qty = dataclasses.replace(ing, quantity=ingredient["quantity"])
+                result.append(ing_with_qty)
+        return result

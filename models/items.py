@@ -14,32 +14,95 @@ from typing import Any, List, Optional, Dict
 
 @dataclass
 class Item:
+    # --- Identité ---
     code: str
-    name: str
-    level: int
-    type: str
-    quantity: int
+    name: str = ""
+    level: int = 0
+    type: str = ""
+    subtype: str = ""
+    description: str = ""
+    tradeable: bool = True
+
+    # --- Stats & craft ---
     effects: List[Dict] = field(default_factory=list)
+    conditions: List[Dict] = field(default_factory=list)
     craft: Optional[Dict] = None
 
+    # --- Usage inventaire/banque (0 = item de la DB pure) ---
+    quantity: int = 0
+
     @classmethod
-    def from_dict(cls, data: Dict):
-        """Méthode helper pour créer un objet Item à partir du JSON de l'API."""
+    def from_dict(cls, data: Dict) -> "Item":
+        """
+        Hydrate depuis :
+          - une réponse GET /items  (données complètes de l'API)
+          - le cache JSON local     (même structure)
+          - un slot d'inventaire    (seulement code + quantity)
+        """
         return cls(
-            code=data.get("code"),
-            name=data.get("name"),
+            code=data.get("code", ""),
+            name=data.get("name", ""),
             level=data.get("level", 0),
-            type=data.get("type"),
-            quantity=data.get("quantity"),
+            type=data.get("type", ""),
+            subtype=data.get("subtype", ""),
+            description=data.get("description", ""),
+            tradeable=data.get("tradeable", True),
             effects=data.get("effects", []),
+            conditions=data.get("conditions", []),
             craft=data.get("craft"),
+            quantity=data.get("quantity", 0),
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        return {"code": self.code, "quantity": self.quantity}
+    def to_dict(self) -> Dict[str, Any]:
+        """Sérialise l'item complet — utilisé pour le cache JSON."""
+        return {
+            "code": self.code,
+            "name": self.name,
+            "level": self.level,
+            "type": self.type,
+            "subtype": self.subtype,
+            "description": self.description,
+            "tradeable": self.tradeable,
+            "effects": self.effects,
+            "conditions": self.conditions,
+            "craft": self.craft,
+            "quantity": self.quantity,
+        }
+
+    # --- Helpers ---
+
+    @property
+    def is_craftable(self) -> bool:
+        return self.craft is not None
+
+    @property
+    def craft_skill(self) -> Optional[str]:
+        return self.craft.get("skill") if self.craft else None
+
+    @property
+    def craft_level(self) -> int:
+        return self.craft.get("level", 0) if self.craft else 0
+
+    @property
+    def craft_ingredients(self) -> List[Dict]:
+        """Retourne la liste des ingrédients : [{"code": ..., "quantity": ...}]"""
+        return self.craft.get("items", []) if self.craft else []
+
+    def get_effect(self, code: str) -> Optional[int]:
+        """Retourne la valeur d'un effet donné (ex: 'heal', 'hp', 'attack_fire')."""
+        for e in self.effects:
+            if e.get("code") == code:
+                return e.get("value")
+        return None
 
     def __repr__(self) -> str:
-        return f"Item({self.code!r} ×{self.quantity})"
+        qty = f" ×{self.quantity}" if self.quantity else ""
+        return f"Item({self.code!r} lv{self.level}{qty})"
+
+
+# ---------------------------------------------------------------------------
+# Inventory
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -97,6 +160,11 @@ class Inventory:
         return f"Inventory({self.used_slots}/{self.max_items} slots, {len(self.items)} types)"
 
 
+# ---------------------------------------------------------------------------
+# Bank
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class Bank:
     """
@@ -137,6 +205,11 @@ class Bank:
         return f"Bank(gold={self.gold}, items={len(self.items)}, slots={self.slots})"
 
 
+# ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class Skill:
     """Niveau et XP d'un skill."""
@@ -172,13 +245,6 @@ class Skills:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Skills":
-        """
-        Hydrate depuis le dictionnaire du personnage.
-
-        L'API utilise le pattern : ``{skill}_level`` et ``{skill}_xp``
-        et ``{skill}_max_xp``.
-        """
-
         def _skill(name: str) -> Skill:
             return Skill(
                 level=data.get(f"{name}_level", 1),
@@ -197,6 +263,10 @@ class Skills:
             alchemy=_skill("alchemy"),
         )
 
+
+# ---------------------------------------------------------------------------
+# Equipment
+# ---------------------------------------------------------------------------
 
 VALID_SLOTS = frozenset(
     {
@@ -241,10 +311,6 @@ class Equipment:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Equipment":
-        """
-        Hydrate depuis le dictionnaire du personnage.
-        L'API utilise le pattern : ``{slot}_slot`` pour chaque slot.
-        """
         return cls(
             weapon=data.get("weapon_slot", ""),
             shield=data.get("shield_slot", ""),
@@ -264,7 +330,6 @@ class Equipment:
         )
 
     def get_slot(self, slot: str) -> str:
-        """Retourne le code de l'item équipé dans un slot donné."""
         return getattr(self, slot, "")
 
     def is_slot_empty(self, slot: str) -> bool:

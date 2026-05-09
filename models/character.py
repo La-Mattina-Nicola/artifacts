@@ -29,7 +29,6 @@ class CharacterBankInterface:
 class Character:
     name: str
     account: "Account"
-
     level: int = 1
     hp: int = 0
     max_hp: int = 0
@@ -42,7 +41,6 @@ class Character:
     max_xp: int = 0
     inventory: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     cooldown_expiration: str = None
-
     max_dmg_seen = 0
 
     def __post_init__(self):
@@ -101,6 +99,7 @@ class Character:
                     await self.default_task()
                 else:
                     await asyncio.sleep(1)
+
             except Exception as e:
                 print(f"⚠️ Erreur {self.name}: {e}")
                 await asyncio.sleep(2)
@@ -215,7 +214,7 @@ class Character:
         return self.crafter.craft(item_code, quantity)
 
     def assign_task(self, task):
-        pass
+        self.default_task = None
 
     def __str__(self):
         return f"Name: {self.name} | {self.hp}/{self.max_hp} || {self.is_working} - {self.cooldown_expiration}"

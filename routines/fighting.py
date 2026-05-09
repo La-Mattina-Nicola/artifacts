@@ -1,9 +1,11 @@
 from models.character import Character
+from .utils import cancellable
 
 
-async def fighting(char: Character, resource_code, treeshold: int = 100):
+@cancellable
+async def fighting(char: Character, resource_code, treeshold: int = 116):
     """Routine de farm fighting"""
-
+    await char.sync()
     # 1. Si l'inventaire est plein, on va à la banque
     if char.inventory_is_full(margin=1):
         print(f"🎒 {char.name} est plein. Go banque.")

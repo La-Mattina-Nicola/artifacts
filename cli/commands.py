@@ -1,17 +1,93 @@
 from routines import gathering, fighting, crafting
+from models import Character
 
 
-def _make_task(fn, action: str, target: str):
+def _make_task(char, fn, *args):
     """Attache les métadonnées d'affichage à une fonction lambda."""
-    fn._action = action
-    fn._target = target
-    return fn
+    match fn.__name__:
+        case "fighting":
+            picto = "⚔️"
+        case "gathering":
+            picto = "⚒️"
+        case "crafting":
+            picto = "🔧"
+        case _:
+            picto = "❓"
+
+    def my_fn():
+        return fn(char, *args)
+
+    my_fn._action = picto
+    my_fn._target = args[0] if args else "???"
+    return my_fn
+
+
+# ─────────────────────────────────────────────
+# DICTIONNAIRES DE COMMANDES
+# ─────────────────────────────────────────────
+
+
+def _cancel_current(hero):
+    """Annule la coroutine en cours si elle tourne."""
+    t = getattr(hero, "_current_task", None)
+    if t and not t.done():
+        t.cancel()
+
+
+def _stop_routine(hero):
+    """Arrête la routine actuelle du héros."""
+    hero.default_task = None
+    _cancel_current(hero)
+    return f"⏸️ {hero.name} en attente"
+
+
+def _fight_routine(hero, code):
+    """Démarre une routine de combat."""
+    hero.default_task = _make_task(hero, fighting, code)
+    _cancel_current(hero)
+    return f"⚔️ {hero.name} combat {code}"
+
+
+def _gather_routine(hero, code):
+    """Démarre une routine de récolte."""
+    hero.default_task = _make_task(hero, gathering, code)
+    _cancel_current(hero)
+    return f"⛏️ {hero.name} récolte {code}"
+
+
+def _craft_routine(hero, code, obj=1):
+    """Démarre une routine de craft."""
+    hero.default_task = _make_task(hero, crafting, code, int(obj))
+    _cancel_current(hero)
+    return f"🔧 {hero.name} craft {code}"
+
+
+# Dictionnaire des actions héros (sans paramètre)
+dict_hero_actions_no_param = {
+    "stop": _stop_routine,
+}
+
+# Dictionnaire des actions héros (avec paramètre)
+dict_hero_actions_with_param = {
+    "fight": _fight_routine,
+    "gather": _gather_routine,
+    "craft": _craft_routine,
+}
+
+# Dictionnaire des commandes globales
+dict_global_commands = {
+    "stop": "stop",
+    "show characters details": "show_details",
+    "hide characters details": "hide_details",
+}
 
 
 async def handle_command(cmd, heroes, ctx, log_lines=None, logs_area=None):
+    """Traite une commande CLI."""
     toggle_skills_overview = ctx.get("toggle_skills_overview")
 
     def log(msg: str):
+        """Affiche un message dans les logs ou print."""
         if log_lines is not None and logs_area is not None:
             log_lines.append(msg)
             logs_area.text = "\n".join(log_lines) + "\n"
@@ -20,53 +96,64 @@ async def handle_command(cmd, heroes, ctx, log_lines=None, logs_area=None):
         else:
             print(msg)
 
-    # ─────────────────────────────────────────────
-    # COMMANDES GLOBALES (pas liées à un héros)
-    # ─────────────────────────────────────────────
-    if cmd == "show characters details":
-        if toggle_skills_overview:
-            toggle_skills_overview(True)
-            log("📊 Affichage des métiers activé")
-        else:
-            log("❌ toggle_skills_overview non disponible")
-        return
-
-    if cmd == "hide characters details":
-        if toggle_skills_overview:
-            toggle_skills_overview(False)
-            log("📄 Retour au dashboard")
-        else:
-            log("❌ toggle_skills_overview non disponible")
+    cmd = cmd.strip()
+    if not cmd:
         return
 
     # ─────────────────────────────────────────────
-    # COMMANDES HÉROS (hero action code)
+    # COMMANDES GLOBALES
+    # ─────────────────────────────────────────────
+    if cmd in dict_global_commands:
+        if cmd == "show characters details":
+            if toggle_skills_overview:
+                toggle_skills_overview(True)
+                log("📊 Affichage des métiers activé")
+            else:
+                log("❌ toggle_skills_overview non disponible")
+        elif cmd == "hide characters details":
+            if toggle_skills_overview:
+                toggle_skills_overview(False)
+                log("📄 Retour au dashboard")
+            else:
+                log("❌ toggle_skills_overview non disponible")
+        return
+
+    # ─────────────────────────────────────────────
+    # COMMANDES HÉROS
     # ─────────────────────────────────────────────
     parts = cmd.split()
-    if len(parts) < 3:
-        log("❌ Format attendu : <hero> <action> <code>")
+    if len(parts) < 2:
+        log("❌ Format attendu : <hero> <action> [code]")
         return
 
-    hero_name, action, code = parts[0], parts[1], parts[2]
+    hero_name = parts[0]
+    action = parts[1].lower()
+    code = parts[2] if len(parts) > 2 else None
+    extra = parts[3] if len(parts) > 3 else None
 
+    # Trouve le héros
     hero = next((h for h in heroes if h.name == hero_name), None)
     if not hero:
-        log(f"❌ Hero '{hero_name}' introuvable")
+        log(f"❌ Héros '{hero_name}' introuvable")
         return
 
-    if action == "fight":
-        hero.default_task = _make_task(lambda: fighting(hero, code), "fight", code)
-        log(f"⚔️  {hero.name} combat maintenant {code}")
+    # Exécute l'action sans paramètre
+    if action in dict_hero_actions_no_param:
+        result = dict_hero_actions_no_param[action](hero)
+        log(result)
+        return
 
-    elif action == "gather":
-        hero.default_task = _make_task(lambda: gathering(hero, code), "gather", code)
-        log(f"⛏️  {hero.name} gather maintenant {code}")
+    # Exécute l'action avec paramètre
+    if action in dict_hero_actions_with_param:
+        if not code:
+            log(f"❌ L'action '{action}' nécessite un paramètre (code)")
+            return
+        if extra is not None:
+            result = dict_hero_actions_with_param[action](hero, code, extra)
+        else:
+            result = dict_hero_actions_with_param[action](hero, code)
+        log(result)
+        return
 
-    elif action == "craft":
-        hero.default_task = _make_task(
-            lambda: crafting(hero, code, 9999), "craft", code
-        )
-        log(f"🛠️  {hero.name} craft maintenant {code}")
-
-    else:
-        log(f"❌ Action inconnue : {action}")
+    # Action inconnue
+    log(f"❌ Action inconnue : {action}")

@@ -33,15 +33,15 @@ _TEXT_W = LINE_W - ICON_COLS  # = 15 chars ASCII après l'icône
 
 def render_hero_block(hero, show_skills: bool = False) -> list[str]:
     if hero.default_task is None:
-        action, target = "WAIT", ""
+        action, target = "Waiting ...", ""
     else:
         action = getattr(hero.default_task, "_action", "TASK")
         target = getattr(hero.default_task, "_target", "?")
 
     cd = _get_cd_remaining(hero)
-    _TARGET_W = _TEXT_W - 3  # 12
+    _TARGET_W = _TEXT_W - (len(action) + 2)  # 12
     action_line = f"{action}   {target[:_TARGET_W]:<{_TARGET_W}}"
-
+    action_line = f"{action_line:<18}"
     lines = [
         f"{hero.name[:10]:<10} lv{hero.level:>4}",
         _ljust_display(f"HP {hero.hp}/{hero.max_hp}", LINE_W),

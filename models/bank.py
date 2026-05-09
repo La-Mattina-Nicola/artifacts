@@ -59,6 +59,7 @@ class BankManager:
             data = res.json().get("data", {})
             for item in items:
                 code, qty = item["code"], item["quantity"]
+                print(f"📦 {char.name} a pris {item['quantity']}x {item['code']}")
                 if code in self.content:
                     self.content[code] -= qty
             self._update_char(char, data)

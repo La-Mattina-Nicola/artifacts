@@ -84,7 +84,7 @@ class FightAction(BaseAction):
                 drops = char_fight_data.get("drops", [])
 
             if result == "win":
-                print(f"✅ Victoire ! XP gagnée : {xp}")
+                print(f"✅ {self.char.name} - {xp} xp")
                 if drops:
                     str = " | ".join(
                         f"{item['code']} x{item['quantity']}" for item in drops

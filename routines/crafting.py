@@ -1,4 +1,6 @@
 from models.character import Character
+from .utils import cancellable
+import asyncio
 
 
 def _inv_count(char: Character, item_code: str) -> int:
@@ -12,6 +14,7 @@ def _inv_total(char: Character) -> int:
     return sum(i.get("quantity", 0) for i in char.inventory if i.get("code"))
 
 
+@cancellable
 async def crafting(char: Character, item_code: str, objectif: int = 1):
     """
     Routine de crafting autonome.
@@ -28,6 +31,7 @@ async def crafting(char: Character, item_code: str, objectif: int = 1):
         objectif:  Nombre total d'exemplaires à crafter.
     """
 
+    await char.sync()
     # ── 1. Récupérer la recette depuis la base d'items ──────────────────────
     item = char.items_db.get_by_code(item_code)
     if not item or not item.craft:
@@ -86,6 +90,7 @@ async def crafting(char: Character, item_code: str, objectif: int = 1):
         print(
             f"⚠️  {char.name} — Pas assez de matériaux pour {item_code}. Manque : {', '.join(missing)}"
         )
+        await asyncio.sleep(10)
         return
 
     print(
@@ -170,3 +175,5 @@ async def crafting(char: Character, item_code: str, objectif: int = 1):
                 await char.sync()
 
     print(f"🎉 {char.name} — Objectif atteint : {crafted_total}x {item_code} craftés !")
+    # assign another routine
+    char.default_task = None
