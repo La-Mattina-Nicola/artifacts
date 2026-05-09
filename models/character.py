@@ -37,6 +37,9 @@ class Character:
     y: int = 0
     gold: int = 0
     inventory_max_items: int = 20
+    skin: str = "men1"
+    xp: int = 0
+    max_xp: int = 0
     inventory: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     cooldown_expiration: str = None
 
@@ -105,6 +108,7 @@ class Character:
     def update_from_api(self, data: dict):
         """Mets à jour le character à partir des données API."""
         # Champs directs simples
+        self.skin = data.get("skin", self.skin)
         self.x = data.get("x", self.x)
         self.y = data.get("y", self.y)
         self.hp = data.get("hp", self.hp)
@@ -150,18 +154,6 @@ class Character:
         response = await self.client.get(f"/characters/{self.name}")
         if response.status_code == 200:
             data = response.json()["data"]
-            old_x, old_y = self.x, self.y
-            old_hp, old_max_hp = self.hp, self.max_hp
-            old_level, old_gold = self.level, self.gold
-            old_inv_total = (
-                sum(
-                    item.get("quantity", 0)
-                    for item in self.inventory
-                    if item.get("code")
-                )
-                if self.inventory
-                else 0
-            )
 
             self.x, self.y = data["x"], data["y"]
             self.hp, self.max_hp = data["hp"], data["max_hp"]
