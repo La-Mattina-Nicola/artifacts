@@ -32,11 +32,13 @@ _TEXT_W = LINE_W - ICON_COLS  # = 15 chars ASCII après l'icône
 
 
 def render_hero_block(hero, show_skills: bool = False) -> list[str]:
-    if hero.default_task is None:
+    active_task = hero.priority_task or hero.default_task
+
+    if active_task is None:
         action, target = "Waiting ...", ""
     else:
-        action = getattr(hero.default_task, "_action", "TASK")
-        target = getattr(hero.default_task, "_target", "?")
+        action = getattr(active_task, "_action", "TASK")
+        target = getattr(active_task, "_target", "?")
 
     cd = _get_cd_remaining(hero)
     _TARGET_W = _TEXT_W - (len(action) + 2)  # 12
@@ -123,3 +125,41 @@ def build_dashboard_text(heroes, show_skills: bool = False) -> str:
 
 def build_skills_overview(heroes):
     return build_dashboard_text(heroes, show_skills=True)
+
+
+def build_tasks_summary(account) -> str:
+    if not account or not account.pending_tasks:
+        return "Aucune tâche active."
+
+    lines = []
+
+    STATUS_ICON = {
+        "pending": "⏳",
+        "assigned": "📋",
+        "running": "⚙️ ",
+        "done": "✅",
+        "cancelled": "❌",
+        "failed": "💥",
+    }
+
+    def render_task(task, indent=0):
+        icon = STATUS_ICON.get(task.status, "❓")
+        prefix = "  " * indent + ("└─ " if indent > 0 else "")
+        target = f"{task.target:<20}"
+        qty = f"x{task.quantity:<4}"
+        who = task.assigned_to or "—"
+        prio = f"[p:{task.priority}]"
+        lines.append(
+            f"{prefix}{icon} {prio:<7} {task.type:<8} {target} {qty} {who:<12} {task.status}"
+        )
+
+        for child in account.children.get(task.id, []):
+            render_task(child, indent + 1)
+
+    # Afficher uniquement les tâches racines (parent_id=None)
+    roots = [t for t in account.pending_tasks.values() if t.parent_id is None]
+    for task in sorted(roots, key=lambda t: t.priority):
+        render_task(task)
+        lines.append("")
+
+    return "\n".join(lines) if lines else "Aucune tâche active."

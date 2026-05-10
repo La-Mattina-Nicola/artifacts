@@ -10,7 +10,7 @@ from prompt_toolkit.filters import has_focus, Condition
 
 from .completer import GameCompleter
 from .commands import handle_command
-from ui.dashboard import build_dashboard_text
+from ui.dashboard import build_dashboard_text, build_tasks_summary
 
 
 class _StdoutToLogs:
@@ -191,6 +191,9 @@ async def run_cli(
                 heroes_area.text = build_dashboard_text(
                     heroes, show_skills=show_skills[0]
                 )
+                account = ctx.get("account")
+                if account:
+                    task_area.text = build_tasks_summary(account)
 
                 wm = ctx.get(world_map_key)
                 im = ctx.get(items_manager_key)

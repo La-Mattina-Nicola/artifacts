@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, TYPE_CHECKING
 from datetime import datetime, timezone
+from models.task import TaskResult, Task
 
 if TYPE_CHECKING:
     from models.account import Account
@@ -65,6 +66,7 @@ class Character:
         self.crafter = CraftAction(self)
 
         self.default_task = None
+        self.priority_task = None
 
     @property
     def is_working(self) -> bool:
@@ -91,12 +93,24 @@ class Character:
             try:
                 await self.wait_until_ready()
 
-                if not self.task_queue.empty():
-                    task_coro = await self.task_queue.get()
-                    await task_coro
+                if self.priority_task is not None:
+                    await self.priority_task()
+                elif not self.task_queue.empty():
+                    task = await self.task_queue.get()
+                    task.status = "running"
+                    success = await self._execute(task)
+                    if success:
+                        task.mark_done()
+                    else:
+                        task.status = "failed"
+                    await self.account.completion_queue.put(
+                        TaskResult(task_id=task.id, character=self, success=success)
+                    )
                     self.task_queue.task_done()
+
                 elif self.default_task:
                     await self.default_task()
+
                 else:
                     await asyncio.sleep(1)
 
@@ -213,8 +227,29 @@ class Character:
     def craft(self, item_code: str, quantity: int = 1):
         return self.crafter.craft(item_code, quantity)
 
-    def assign_task(self, task):
-        self.default_task = None
+    def assign_task(self, task: Task):
+        self.task_queue.put_nowait(task)
+        current = getattr(self, "_current_task", None)
+        if current and not current.done():
+            current.cancel()
+
+    def assign_priority_task(self, task: Task):
+        self.priority_task = task
+        current = getattr(self, "_current_task", None)
+        if current and not current.done():
+            current.cancel()
+
+    async def _execute(self, task):
+        from routines import crafting, gathering, fighting
+
+        if task.type == "craft":
+            await crafting(self, task.target, task.quantity)
+        if task.type == "gather":
+            await gathering(self, task.target, task.quantity)
+        if task.type == "fight":
+            await fighting(self, task.target, task.quantity)
+        if task.type in ["craft", "gather", "fight"]:
+            return True
 
     def __str__(self):
         return f"Name: {self.name} | {self.hp}/{self.max_hp} || {self.is_working} - {self.cooldown_expiration}"

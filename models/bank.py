@@ -29,7 +29,7 @@ class BankManager:
         res_gold = await self.client.get("/my/bank/gold")
         if res_gold.status_code == 200:
             self.gold = res_gold.json()["data"]["quantity"]
-        print(f"🏦 Banque synchronisée : {len(self.content)} types d'items.")
+        print(f"🏦 chronisée : {len(self.content)} types d'items.")
 
     async def _execute_deposit(self, char: Character, items: list):
         endpoint = f"/my/{char.name}/action/bank/deposit/item"

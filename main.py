@@ -20,22 +20,24 @@ async def main():
     hero_tasks = []
 
     async def init_and_run():
-        """Init complète en arrière-plan, les print() vont dans les logs UI."""
         print("🚀 Initialisation du compte...")
 
         account = Account(token=os.getenv("ARTIFACTS_TOKEN"))
         await account.initialize()
+        ctx["account"] = account
 
-        ctx["items_manager"] = ItemsManager(account.client)
-        ctx["world_map"] = WorldMap(account.client)
-        await ctx["world_map"].init_map()
+        # ← ici
+        hero_tasks.append(asyncio.create_task(account.listen_completions()))
+
+        ctx["items_manager"] = account.items_db
+        ctx["world_map"] = account.world
 
         default_tasks = {
             "Kioyaa": (fighting, ["cow"]),
-            "Kioyaa_g": (fighting, ["chicken"]),
-            "Kio_wood": (fighting, ["green_slime"]),
+            "Kioyaa_g": (fighting, ["green_slime"]),
+            "Kio_wood": (fighting, ["blue_slime"]),
             "Kio_fish": (fighting, ["cow"]),
-            "Kio_util": (fighting, ["blue_slime"]),
+            "Kio_util": (fighting, ["cow"]),
         }
 
         for key, value in default_tasks.items():
@@ -43,10 +45,10 @@ async def main():
             heroes.append(char)
             await char.sync()
             char.default_task = _make_task(char, value[0], *value[1])
-
             hero_tasks.append(asyncio.create_task(char.main_loop()))
 
-    print(f"✅ {len(heroes)} héros sont en ligne !")
+        print(f"✅ {len(heroes)} héros sont en ligne !")
+
     init_task = asyncio.create_task(init_and_run())
 
     try:

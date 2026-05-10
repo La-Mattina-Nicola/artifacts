@@ -62,6 +62,11 @@ def _craft_routine(hero, code, obj=1):
     return f"🔧 {hero.name} craft {code}"
 
 
+async def _add_task(account, target, quantity=1, priority=10):
+    await account.add_request(target, int(quantity), int(priority))
+    return f"📋 Requête : {quantity}x {target}"
+
+
 # Dictionnaire des actions héros (sans paramètre)
 dict_hero_actions_no_param = {
     "stop": _stop_routine,
@@ -122,6 +127,21 @@ async def handle_command(cmd, heroes, ctx, log_lines=None, logs_area=None):
     # COMMANDES HÉROS
     # ─────────────────────────────────────────────
     parts = cmd.split()
+    # Format : "add task <target> [quantity] [priority]"
+    if parts[0] == "add" and parts[1] == "task":
+        target = parts[2] if len(parts) > 2 else None
+        quantity = parts[3] if len(parts) > 3 else 1
+        priority = parts[4] if len(parts) > 4 else 10
+        if not target:
+            log("❌ Format : add task <item_code> [quantity] [priority]")
+            return
+        account = ctx.get("account")
+        if not account:
+            log("❌ Account non disponible dans le contexte")
+            return
+        result = await _add_task(account, target, quantity, priority)
+        log(result)
+        return
     if len(parts) < 2:
         log("❌ Format attendu : <hero> <action> [code]")
         return

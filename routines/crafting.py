@@ -175,5 +175,3 @@ async def crafting(char: Character, item_code: str, objectif: int = 1):
                 await char.sync()
 
     print(f"🎉 {char.name} — Objectif atteint : {crafted_total}x {item_code} craftés !")
-    # assign another routine
-    char.default_task = None
