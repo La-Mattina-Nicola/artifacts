@@ -46,6 +46,7 @@ class BankManager:
                 )
 
             self._update_char(char, data)
+            await char.account.bank.sync()
             return True
         else:
             print(f"❌ Erreur dépôt groupé {char.name} ({res.status_code}): {res.text}")

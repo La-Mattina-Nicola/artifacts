@@ -3,7 +3,7 @@ from .utils import cancellable
 
 
 @cancellable
-async def fighting(char: Character, resource_code, treeshold: int = 116):
+async def fighting(char: Character, resource_code, treeshold: int = 150):
     """Routine de farm fighting"""
     await char.sync()
     # 1. Si l'inventaire est plein, on va à la banque

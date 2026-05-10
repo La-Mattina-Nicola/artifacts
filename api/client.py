@@ -22,25 +22,15 @@ def find_key(obj, key):
 def auto_cooldown(func):
     @wraps(func)
     async def wrapper(self, *args, **kwargs):
-        # AVANT la requête: attendre le cooldown du character
         if self.character:
             await self.character.wait_until_ready()
-        
-        # Puis exécuter la requête
         response = await func(self, *args, **kwargs)
-
         if not self.character:
             return response
-
         try:
             json_data = response.json()
-
-            # APRÈS la requête: mettre à jour le cooldown depuis la réponse
             if response.status_code == 200:
-                # Pour succès: chercher dans data.cooldown.expiration ou data.characters[0]
                 data = json_data.get("data", {})
-
-                # Essayer plusieurs chemins possibles
                 cooldown_exp = (
                     data.get("cooldown", {}).get("expiration")
                     or (
@@ -50,14 +40,11 @@ def auto_cooldown(func):
                     )
                     or find_key(json_data, "cooldown_expiration")
                 )
-
                 if cooldown_exp:
                     self.character.cooldown_expiration = cooldown_exp
         except Exception:
-            # Si la réponse n'est pas JSON, ignorer
             pass
         return response
-
     return wrapper
 
 

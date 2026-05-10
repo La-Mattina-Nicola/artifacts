@@ -4,14 +4,14 @@ from utils.helper import resolve_to_node_code
 
 
 @cancellable
-async def gathering(char: "Character", resource_code, quantity):
+async def gathering(char: "Character", resource_code, quantity=None):
     await char.sync()
 
     # combien on a déjà en banque
     current = char.account.bank.content.get(resource_code, 0)
 
     # ✅ STOP condition
-    if current >= quantity:
+    if quantity is not None and current >= quantity:
         print(f"✅ {resource_code} atteint ({current}/{quantity})")
         char.priority_task = None
         return

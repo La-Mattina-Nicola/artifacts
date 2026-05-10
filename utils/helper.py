@@ -1,31 +1,38 @@
 def resolve_to_node_code(world_map, resource_code: str, items_db=None):
-    # ✅ déjà un node de map
     if resource_code in world_map.resources:
         return resource_code
 
-    # ✅ via items_db
     if items_db:
         item = items_db.get_by_code(resource_code)
         if item:
             subtype = getattr(item, "subtype", None)
 
             suffix_map = {
-                "alchemy": "_field",
-                "mining": "_rock",
-                "woodcutting": "_tree",
-                "fishing": "_spot",
+                "alchemy": ("", "_field"),
+                "mining": ("_ore|_stone", "_rocks"),
+                "woodcutting": ("_log|_wood", "_tree"),
+                "fishing": ("", "_spot"),
             }
 
-            suffix = suffix_map.get(subtype)
-            if suffix:
-                candidate = resource_code + suffix
+            if subtype in suffix_map:
+                strip_pattern, add_suffix = suffix_map[subtype]
+                base = resource_code
+                for strip in strip_pattern.split("|"):
+                    if strip and base.endswith(strip):
+                        base = base[: -len(strip)]
+                        break
+                candidate = base + add_suffix
                 if candidate in world_map.resources:
                     return candidate
 
-    # 🧪 fallback
-    for suffix in ["_field", "_rock", "_tree", "_spot"]:
+    for suffix in ["_rocks", "_field", "_tree", "_spot"]:
         candidate = resource_code + suffix
         if candidate in world_map.resources:
             return candidate
+        for strip in ["_ore", "_stone", "_log"]:
+            if resource_code.endswith(strip):
+                candidate = resource_code[: -len(strip)] + suffix
+                if candidate in world_map.resources:
+                    return candidate
 
     return None

@@ -33,11 +33,11 @@ async def main():
         ctx["world_map"] = account.world
 
         default_tasks = {
-            "Kioyaa": (fighting, ["cow"]),
-            "Kioyaa_g": (fighting, ["green_slime"]),
-            "Kio_wood": (fighting, ["blue_slime"]),
-            "Kio_fish": (fighting, ["cow"]),
-            "Kio_util": (fighting, ["cow"]),
+            "Kioyaa": (fighting, ["yellow_slime"]),
+            "Kioyaa_g": (gathering, ["coal_rocks", 600]),
+            "Kio_wood": (fighting, ["wolf"]),
+            "Kio_fish": (fighting, ["wolf"]),
+            "Kio_util": (fighting, ["wolf"]),
         }
 
         for key, value in default_tasks.items():

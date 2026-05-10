@@ -51,7 +51,7 @@ class Account:
 
     async def _poll_gather_tasks(self):
         await asyncio.sleep(60)
-        await self.bank.sync()
+        # await self.bank.sync()
 
         for task in self.pending_tasks.values():
             if task.type != "gather" or task.status != "running":
@@ -82,19 +82,19 @@ class Account:
 
         await self.bank.sync()
 
-        print(f"✅ Task {task.type} {task.target} terminée par {result.character.name}")
-
-        # Regarder les enfants de cette tâche
         enfants = self.children.get(task.id, [])
-        non_done = [t for t in enfants if t.status != "done"]
+        non_done = [t for t in enfants if t.status not in ["done", "cancelled"]]
 
-        if not non_done:
-            # Tous les enfants sont done → réévaluer le parent
-            if task.parent_id is not None:
-                parent = self.pending_tasks.get(task.parent_id)
-                if parent:
-                    await self.try_assign_or_expand(parent)
-        # sinon on attend les autres enfants
+        if not non_done and task.parent_id is not None:
+            parent = self.pending_tasks.get(task.parent_id)
+            if parent:
+                # ← nettoyer les enfants done du parent avant réévaluation
+                self.children[parent.id] = [
+                    t
+                    for t in self.children.get(parent.id, [])
+                    if t.status not in ["done", "cancelled"]
+                ]
+                await self.try_assign_or_expand(parent)
 
     async def initialize(self):
         await asyncio.gather(
@@ -110,52 +110,44 @@ class Account:
         return char
 
     async def assign_task(self, task: Task):
-        chars = list(self.characters.values())
 
-        if not chars:
-            return
+        # 1. Candidats éligibles (skill requis)
+        candidats = [
+            char
+            for char in self.characters.values()
+            if task.required_skill is None
+            or getattr(char, f"{task.required_skill}_level", 0)
+            >= task.required_skill_level
+        ]
 
-        # 🔁 rotation
-        start_index = self._char_rotation_index
-        n = len(chars)
-
-        selected = None
-
-        # 1️⃣ priorité → perso dispo
-        for i in range(n):
-            idx = (start_index + i) % n
-            char = chars[idx]
-
-            if not char.is_working:
-                selected = char
-                self._char_rotation_index = (idx + 1) % n
-                break
-
-        # 2️⃣ fallback → tous occupés → on prend quand même le prochain
-        if not selected:
-            selected = chars[start_index]
-            self._char_rotation_index = (start_index + 1) % n
-
-        if not selected:
+        if not candidats:
             task.status = "pending"
-            print(f"⏳ Aucun personnage dispo pour {task.target}")
+            print(f"⏳ Aucun personnage avec le skill requis pour {task.target}")
             return
 
+        # 2. Trier par occupation : idle > priority_task libre > busy
+        def occupation_score(char):
+            if char.priority_task is None and char.task_queue.empty():
+                return 0  # complètement libre
+            if char.priority_task is None:
+                return 1  # queue non vide mais pas de priority
+            return 2  # déjà une priority_task
+
+        selected = min(candidats, key=occupation_score)
+
+        # 3. Assigner
         task.assigned_to = selected.name
 
         if task.type == "gather":
             task.status = "running"
-            selected.priority_task = self._make_priority_task(selected, task.target)
-            print(
-                f"📋 {task.type} {task.target} x{task.quantity} assigné à {selected.name}"
+            selected.priority_task = self._make_priority_task(
+                selected, task.target, task.quantity
             )
-            return
+        else:
+            task.status = "assigned"
+            selected.assign_task(task)
 
-        task.status = "assigned"
-        selected.assign_task(task)
-        print(
-            f"📋 {task.type} {task.target} x{task.quantity} assigné à {selected.name}"
-        )
+        print(f"📋 {task.type} {task.target} x{task.quantity} → {selected.name}")
 
     async def try_assign_or_expand(self, task: Task):
         item = self.items_db.get_by_code(task.target)
@@ -179,6 +171,19 @@ class Account:
             for miss in missings:
                 mat_item = self.items_db.get_by_code(miss["code"])
                 sous_type = "craft" if mat_item and mat_item.is_craftable else "gather"
+
+                existing = next(
+                    (
+                        t
+                        for t in self.children.get(task.id, [])
+                        if t.target == miss["code"]
+                        and t.type == sous_type
+                        and t.status not in ["done", "cancelled"]
+                    ),
+                    None,
+                )
+                if existing:
+                    continue
 
                 sous_tache = Task(
                     id=self._next_id(),
@@ -238,3 +243,31 @@ class Account:
         else:
             await self.try_assign_or_expand(task)
         print(f"✅ Requête ajoutée : {quantity}x {target} (priorité {priority})")
+
+    async def cancel_request(self, root_request_id: int):
+        tasks = [
+            t
+            for t in self.pending_tasks.values()
+            if t.root_request_id == root_request_id
+        ]
+
+        if not tasks:
+            print(f"❌ Requête {root_request_id} introuvable.")
+            return
+
+        for task in tasks:
+            if task.assigned_to and task.status in ["assigned", "running"]:
+                char = self.characters.get(task.assigned_to)
+                if char:
+                    char.priority_task = None
+                    current = getattr(char, "_current_task", None)
+                    if current and not current.done():
+                        current.cancel()
+
+            task.cancel()
+            self.pending_tasks.pop(task.id, None)
+        self.children = {
+            k: v for k, v in self.children.items() if k not in {t.id for t in tasks}
+        }
+
+        print(f"🗑️ Requête {root_request_id} annulée ({len(tasks)} tâches supprimées).")

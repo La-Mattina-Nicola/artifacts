@@ -148,7 +148,7 @@ def build_tasks_summary(account) -> str:
         target = f"{task.target:<20}"
         qty = f"x{task.quantity:<4}"
         who = task.assigned_to or "—"
-        prio = f"[p:{task.priority}]"
+        prio = f"[#{task.id}|p:{task.priority}]"
         lines.append(
             f"{prefix}{icon} {prio:<7} {task.type:<8} {target} {qty} {who:<12} {task.status}"
         )

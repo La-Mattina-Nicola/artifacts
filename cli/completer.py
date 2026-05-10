@@ -36,10 +36,11 @@ class GameCompleter(Completer):
                 if code.startswith(prefix):
                     yield Completion(code, start_position=-len(prefix))
 
-        elif action == "gather" and self.world_map:
-            for code in (self.world_map.resources or {}).keys():
-                if code.startswith(prefix):
-                    yield Completion(code, start_position=-len(prefix))
+        elif action == "gather" and self.items_manager:
+            for code, item in (self.items_manager.items or {}).items():
+                if item.subtype in ("mining", "woodcutting", "fishing", "alchemy"):
+                    if code.startswith(prefix):
+                        yield Completion(code, start_position=-len(prefix))
 
         elif action == "craft" and self.items_manager:
             for code in (self.items_manager.items or {}).keys():

@@ -95,6 +95,7 @@ class Character:
 
                 if self.priority_task is not None:
                     await self.priority_task()
+
                 elif not self.task_queue.empty():
                     task = await self.task_queue.get()
                     task.status = "running"
@@ -114,6 +115,8 @@ class Character:
                 else:
                     await asyncio.sleep(1)
 
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 print(f"⚠️ Erreur {self.name}: {e}")
                 await asyncio.sleep(2)

@@ -127,6 +127,19 @@ async def handle_command(cmd, heroes, ctx, log_lines=None, logs_area=None):
     # COMMANDES HÉROS
     # ─────────────────────────────────────────────
     parts = cmd.split()
+
+    if len(parts) >= 3 and parts[0] == "cancel" and parts[1] == "task":
+        account = ctx.get("account")
+        if not account:
+            log("❌ Account non disponible")
+            return
+        try:
+            request_id = int(parts[2])
+        except ValueError:
+            log("❌ Format : cancel task <id>")
+            return
+        await account.cancel_request(request_id)
+        return
     # Format : "add task <target> [quantity] [priority]"
     if parts[0] == "add" and parts[1] == "task":
         target = parts[2] if len(parts) > 2 else None
