@@ -158,5 +158,11 @@ class WorldMap:
         target_list = self.workshops.get(skill, [])
         return self._find_nearest(start_pos, target_list) if target_list else None
 
+    def get_nearest_taskmaster(self, type, start_pos: Tuple[int, int]):
+        if type == "items":
+            return (4, 13)
+        else:
+            return (1, 2)
+
     def get_tile(self, x, y) -> Optional[MapTile]:
         return self.tiles.get(f"{x},{y}")

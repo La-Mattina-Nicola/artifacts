@@ -231,3 +231,95 @@ class CraftAction(BaseAction):
                 print(f"❌ Erreur {error_code}: {msg}")
 
             return False
+
+
+class WithdrawAction(BaseAction):
+    """Phase 3.4: Withdraw items from bank."""
+
+    async def withdraw(self, items: list[dict]) -> bool:
+        """
+        Withdraw items from bank.
+        Args:
+            items: List of {"code": item_code, "quantity": qty}
+        """
+        response = await self.char.client.post(
+            f"/my/{self.char.name}/action/bank/withdraw/item", json=items
+        )
+
+        res_json = response.json()
+
+        if response.status_code == 200:
+            data = res_json.get("data", {})
+            self.char.update_from_api(data.get("character", {}))
+
+            items_str = " | ".join(f"{i['code']} x{i['quantity']}" for i in items)
+            print(f"🏧 {self.char.name} retira : {items_str}")
+            return True
+        else:
+            err = res_json.get("error", {})
+            error_code = err.get("code")
+            msg = err.get("message", "Erreur inconnue")
+            print(f"❌ {self.char.name} — Erreur retrait {error_code}: {msg}")
+            return False
+
+
+class TaskAction(BaseAction):
+    async def new(self):
+        response = await self.char.client.post(f"/my/{self.char.name}/action/task/new")
+        res_json = response.json()
+        if response.status_code == 200:
+            data = res_json.get("data", {})
+            self.char.update_from_api(data.get("character", {}))
+            print(
+                f"✅ {self.char.name} — New task ! {self.char.task} x{self.char.task_total}"
+            )
+            return True
+        else:
+            err = res_json.get("error", {})
+            error_code = err.get("code")
+            msg = err.get("message", "Erreur inconnue")
+            print(f"❌ {self.char.name} — {error_code}: {msg}")
+            return False
+
+    async def trade(self, body):
+        response = await self.char.client.post(
+            f"/my/{self.char.name}/action/task/trade", body
+        )
+        res_json = response.json()
+        if response.status_code == 200:
+            data = res_json.get("data", {})
+            self.char.update_from_api(data.get("character", {}))
+            return True
+        else:
+            err = res_json.get("error", {})
+            error_code = err.get("code")
+            msg = err.get("message", "Erreur inconnue")
+            print(f"❌ {self.char.name} — Erreur complétion {error_code}: {msg}")
+            return False
+
+    async def complete(self):
+        """
+        Complete current task at taskmaster.
+        Assumes character is at taskmaster location.
+        """
+        response = await self.char.client.post(
+            f"/my/{self.char.name}/action/task/complete"
+        )
+
+        res_json = response.json()
+
+        if response.status_code == 200:
+            data = res_json.get("data", {})
+            self.char.update_from_api(data.get("character", {}))
+
+            reward_data = data.get("rewards", {})
+            gold = reward_data.get("gold", 0)
+            xp = reward_data.get("xp", 0)
+            print(f"✅ {self.char.name} — Tâche complétée ! (+{gold}g, +{xp}xp)")
+            return True
+        else:
+            err = res_json.get("error", {})
+            error_code = err.get("code")
+            msg = err.get("message", "Erreur inconnue")
+            print(f"❌ {self.char.name} — Erreur complétion {error_code}: {msg}")
+            return False

@@ -43,6 +43,10 @@ class Character:
     inventory: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     cooldown_expiration: str = None
     max_dmg_seen = 0
+    task = ""
+    task_type = ""
+    task_progress = 0
+    task_total = 0
 
     def __post_init__(self):
         from api.client import AsyncApiClient
@@ -52,6 +56,8 @@ class Character:
             RestAction,
             GatherAction,
             CraftAction,
+            WithdrawAction,
+            TaskAction,
         )
 
         self.client = AsyncApiClient(token=self.account.token, character=self)
@@ -64,8 +70,13 @@ class Character:
         self.rester = RestAction(self)
         self.gatherer = GatherAction(self)
         self.crafter = CraftAction(self)
+        self.tasker = TaskAction(self)
+        self.withdrawer = WithdrawAction(self)
 
-        self.default_task = None
+        # Phase 3.3: Bind tasking routine as default task
+        from routines.tasking import tasking
+
+        self.default_task = lambda: tasking(self)
         self.priority_task = None
 
     @property
@@ -109,6 +120,16 @@ class Character:
                     )
                     self.task_queue.task_done()
 
+                    # Phase 3.1: Call on_action after task completion
+                    await self.account.on_action(
+                        self.name,
+                        {
+                            "action": task.type,
+                            "target": task.target,
+                            "inventory": self.inventory,
+                        },
+                    )
+
                 elif self.default_task:
                     await self.default_task()
 
@@ -138,6 +159,10 @@ class Character:
         self.cooldown_expiration = data.get(
             "cooldown_expiration", self.cooldown_expiration
         )
+        self.task = data.get("task", self.task)
+        self.task_type = data.get("task_type", self.task_type)
+        self.task_progress = data.get("task_progress", self.task_progress)
+        self.task_total = data.get("task_total", self.task_total)
 
         # Mettre à jour les skills dynamiquement (comme dans sync)
         for skill in [
@@ -177,6 +202,10 @@ class Character:
             self.inventory = data["inventory"]
             self.inventory_max_items = data["inventory_max_items"]
             self.cooldown_expiration = data["cooldown_expiration"]
+            self.task = data["task"]
+            self.task_type = data["task_type"]
+            self.task_progress = data["task_progress"]
+            self.task_total = data["task_total"]
 
             # Dans sync(), après self.inventory_max_items = ...
             for skill in [
@@ -242,17 +271,109 @@ class Character:
         if current and not current.done():
             current.cancel()
 
-    async def _execute(self, task):
+    async def _execute(self, task: Task):
+        """
+        Exécute une tâche du queue.
+
+        Pour gather/fight/craft: juste l'action, account crée les deposits
+        Pour deposit/withdraw/complete_task: action finale de la livraison
+        """
         from routines import crafting, gathering, fighting
 
-        if task.type == "craft":
-            await crafting(self, task.target, task.quantity)
+        # ════════════════════════════════════════════════════════════════
+        # ACTION TASKS (gather/craft/fight)
+        # ════════════════════════════════════════════════════════════════
         if task.type == "gather":
             await gathering(self, task.target, task.quantity)
-        if task.type == "fight":
-            await fighting(self, task.target, task.quantity)
-        if task.type in ["craft", "gather", "fight"]:
             return True
+
+        elif task.type == "craft":
+            await crafting(self, task.target, task.quantity)
+            return True
+
+        elif task.type == "fight":
+            await fighting(self, task.target, task.quantity)
+            return True
+
+        # ════════════════════════════════════════════════════════════════
+        # BANK TASKS
+        # ════════════════════════════════════════════════════════════════
+        elif task.type == "deposit":
+            # Déposer les items du target code
+            items_to_deposit = [
+                {"code": inv_item["code"], "quantity": inv_item.get("quantity", 0)}
+                for inv_item in self.inventory
+                if inv_item.get("code") == task.target
+                and inv_item.get("quantity", 0) > 0
+            ]
+            if items_to_deposit:
+                await self.banker.deposit(items_to_deposit)
+            return True
+
+        elif task.type == "withdraw":
+            # Retirer de la banque avec gestion des batchs
+            await self.mover.to_bank()
+
+            # Calcul du batch en fonction de l'espace dispo
+            current_used = sum(
+                item.get("quantity", 0) for item in self.inventory if item.get("code")
+            )
+            available_space = self.inventory_max_items - current_used
+            batch = min(available_space - 2, task.quantity)  # Laisser 2 slots margin
+
+            if batch <= 0:
+                # Inventaire plein - sync et retry plus tard
+                print(f"❌ {self.name} — Inventaire plein, impossible de retirer")
+                await asyncio.sleep(1)
+                return False
+
+            try:
+                await self.banker.withdraw([{"code": task.target, "quantity": batch}])
+
+                # ✅ Si c'était un batch partial, créer une nouvelle task pour le reste
+                if batch < task.quantity:
+                    remaining = task.quantity - batch
+                    new_task = Task(
+                        id=self.account._next_id(),
+                        root_request_id=task.root_request_id,
+                        parent_id=task.id,
+                        type="withdraw",
+                        target=task.target,
+                        quantity=remaining,
+                        priority=task.priority,
+                        required_skill=task.required_skill,
+                        required_skill_level=task.required_skill_level,
+                        required_materials=task.required_materials,
+                        status="pending",
+                        assigned_to=self.name,
+                        parent_request_id=task.parent_request_id,
+                    )
+                    self.account.pending_tasks[new_task.id] = new_task
+                    self.task_queue.put_nowait(new_task)
+                    print(
+                        f"✅ {self.name} — Retiré {batch}x {task.target}, {remaining}x encore à retirer"
+                    )
+                else:
+                    print(f"✅ {self.name} — Retiré {batch}x {task.target}")
+
+                return True
+            except Exception as e:
+                print(f"❌ {self.name} — Erreur retrait: {e}")
+                return False
+
+        # ════════════════════════════════════════════════════════════════
+        # COMPLETION TASK (livrer au NPC)
+        # ════════════════════════════════════════════════════════════════
+        elif task.type == "complete_task":
+            taskmaster_pos = self.world_map.get_nearest_taskmaster(
+                "items", (self.x, self.y)
+            )
+            await self.mover.to_coords(*taskmaster_pos)
+            return await self.tasker.complete()
+
+        # Type inconnu
+        print(f"⚠️ Type de task inconnu: {task.type}")
+        return False
 
     def __str__(self):
         return f"Name: {self.name} | {self.hp}/{self.max_hp} || {self.is_working} - {self.cooldown_expiration}"

@@ -1,11 +1,11 @@
 import asyncio
-from typing import Dict
+from typing import Dict, Optional, Literal
 from api.client import AsyncApiClient
 from models.bank import BankManager
 from models.item_manager import ItemsManager
 from models.world import WorldMap
 from models.character import Character
-from models.task import Task, TaskResult
+from models.task import Task, TaskResult, PendingRequest
 from routines import gathering
 
 
@@ -18,13 +18,17 @@ class Account:
         self.world = WorldMap(self.client)
         self.characters: Dict[str, Character] = {}
 
-        # Nouveaux attributs
         self.completion_queue: asyncio.Queue = asyncio.Queue()
         self.pending_tasks: Dict[int, Task] = {}
         self.children: Dict[int, list[Task]] = {}
+        self.pending_requests: Dict[
+            int, PendingRequest
+        ] = {} 
 
         self._task_counter = 0
         self._char_rotation_index = 0
+        self._request_counter = 0
+        self.active_requests: set[tuple[str, str]] = set()
 
     def _make_priority_task(self, char: Character, target: str, quantity: int):
         def my_fn():
@@ -38,6 +42,152 @@ class Account:
         self._task_counter += 1
         return self._task_counter
 
+    def _next_request_id(self) -> int:
+        """Generate unique request ID."""
+        self._request_counter += 1
+        return self._request_counter
+
+
+    def total_available(self, item_code: str) -> int:
+        """
+        1.1 Total available items: bank + all character inventories.
+        Returns 0 if item not found.
+        """
+        total = self.bank.content.get(item_code, 0)
+
+        for char in self.characters.values():
+            for inv_item in char.inventory:
+                if inv_item.get("code") == item_code:
+                    total += inv_item.get("quantity", 0)
+
+        return total
+
+    def get_source(self, item_code: str) -> Optional[tuple[str, Optional[str]]]:
+        """
+        1.2 Determine item source: craftable, gatherable, or fight drop.
+        Returns ("craft", skill), ("gather", None), ("fight", None), or None.
+        """
+        item = self.items_db.get_by_code(item_code)
+        if not item:
+            return None
+
+        if item.is_craftable:
+            return ("craft", item.craft_skill)
+
+        if hasattr(self.world, "resources"):
+            if item_code in self.world.resources:
+                return ("gather", None)
+
+            alt_codes = [
+                item_code + "s",  
+                item_code[:-1]
+                if item_code.endswith("s")
+                else None, 
+                item_code.replace(
+                    "_ore", "_rocks"
+                ), 
+                item_code.replace("_rock", "_rocks"),
+            ]
+            for alt_code in alt_codes:
+                if alt_code and alt_code in self.world.resources:
+                    return ("gather", None)
+
+        return ("fight", None)
+
+    def select_workers(
+        self, source: tuple[str, Optional[str]], skill: Optional[str], requester: str
+    ) -> list[str]:
+        """
+        1.3 Select appropriate workers based on source type and skill level.
+        - fight → [requester] only
+        - gather → filter by skill level
+        - craft weapon/gear/jewel → [Kioyaa] only (dedicated crafter)
+        - craft other → requester if skilled, else best available
+        - Returns empty list if not enough skilled workers.
+        """
+        source_type, source_skill = source
+
+        if source_type == "fight":
+            return [requester]
+
+        if source_type == "gather":
+            return list(self.characters.keys())
+
+        if source_type == "craft":
+            requester_char = self.characters.get(requester)
+            if not requester_char or not source_skill:
+                return []
+
+            requester_level = getattr(requester_char, f"{source_skill}_level", 0)
+            if requester_level > 0:
+                return [requester]
+
+            for char_name, char in self.characters.items():
+                char_level = getattr(char, f"{source_skill}_level", 0)
+                if char_level > 0:
+                    return [char_name]
+
+            return []
+
+        return []
+
+    def build_task_queue(
+        self,
+        action: Literal[
+            "gather", "fight", "craft", "deposit", "withdraw", "complete_task"
+        ],
+        target: str,
+        quantity: int,
+        inventory_max: int,
+    ) -> list[Task]:
+        """
+        2.1 Build task queue with chunking based on inventory capacity.
+        Creates ONLY the main action tasks (gather/fight/craft).
+        Deposit tasks will be created in on_task_complete() after each chunk finishes.
+        Returns list of Task objects.
+        """
+        tasks = []
+        task_list_id = self._next_id()
+
+        chunks = quantity // inventory_max
+        remainder = quantity % inventory_max
+
+        for i in range(chunks):
+            task = Task(
+                id=self._next_id(),
+                root_request_id=task_list_id,
+                parent_id=None,
+                type=action, 
+                target=target,
+                quantity=inventory_max,
+                priority=10,
+                required_skill=None,
+                required_skill_level=0,
+                required_materials=[],
+                status="pending",
+                assigned_to=None,
+            )
+            tasks.append(task)
+
+        if remainder > 0:
+            task = Task(
+                id=self._next_id(),
+                root_request_id=task_list_id,
+                parent_id=None,
+                type=action, 
+                target=target,
+                quantity=remainder,
+                priority=10,
+                required_skill=None,
+                required_skill_level=0,
+                required_materials=[],
+                status="pending",
+                assigned_to=None,
+            )
+            tasks.append(task)
+
+        return tasks
+
     async def listen_completions(self):
         while True:
             try:
@@ -49,38 +199,341 @@ class Account:
             await self.on_task_complete(result)
             self.completion_queue.task_done()
 
-    async def _poll_gather_tasks(self):
-        await asyncio.sleep(60)
-        # await self.bank.sync()
+    async def on_action(self, character: str, action_result: dict) -> None:
+        """
+        2.3 Handle character action completion.
+        - Update character inventory
+        - Check if pending requests can move forward (craft materials?)
 
-        for task in self.pending_tasks.values():
-            if task.type != "gather" or task.status != "running":
+        tasking() gère la livraison complète (withdraw + trade + complete)
+        """
+        char = self.characters.get(character)
+        if not char:
+            return
+
+        if "inventory" in action_result:
+            char.inventory = action_result["inventory"]
+
+        action_type = action_result.get("action", "")
+
+        if action_type in ["deposit", "gather", "fight", "craft"]:
+            await self._check_pending_requests()
+
+    async def _check_pending_requests(self) -> None:
+        """
+        Vérifier si les requêtes peuvent avancer:
+        1. Pour gather/fight → attendre les tâches
+        2. Pour craft → CRÉER craft tasks si matériaux disponibles
+        """
+        for request_id in list(self.pending_requests.keys()):
+            req = self.pending_requests.get(request_id)
+            if not req or req.status in ["completed", "blocked"]:
                 continue
 
-            char_name = task.assigned_to
-            if not char_name:
+            if req.source[0] == "craft":
+                all_ready = all(
+                    self.total_available(code) >= qty
+                    for code, qty in req.materials_pending.items()
+                )
+
+                if all_ready and req.status == "pending":
+                    print(f"✅ Matériaux prêts pour craft: {req.target}")
+
+                    workers = self.select_workers(
+                        req.source, req.source[1], req.requester
+                    )
+                    if not workers:
+                        print(f"⚠️ Aucun worker pour crafter {req.target}")
+                        req.status = "blocked"
+                        continue
+
+                    req.assigned_workers = workers
+                    quantity = req.quantity - self.total_available(req.target)
+
+                    if quantity <= 0:
+                        req.status = "in_progress"
+                        print(f"✅ {req.target} déjà disponible, tasking() livrera")
+                        continue
+
+                    per_worker = quantity // len(workers)
+                    remainder = quantity % len(workers)
+
+                    for i, worker in enumerate(workers):
+                        worker_qty = per_worker + (1 if i < remainder else 0)
+                        craft_task = Task(
+                            id=self._next_id(),
+                            root_request_id=req.id,
+                            parent_id=None,
+                            type="craft",
+                            target=req.target,
+                            quantity=worker_qty,
+                            priority=10,
+                            required_skill=req.source[1], 
+                            required_skill_level=1,  
+                            required_materials=list(req.materials_pending.items()),
+                            status="pending",
+                            assigned_to=worker,
+                            parent_request_id=req.id,
+                        )
+                        self.pending_tasks[craft_task.id] = craft_task
+                        self.characters[worker].task_queue.put_nowait(craft_task)
+
+                    req.status = "in_progress"
+                    print(f"🔧 Craft tasks créés pour {req.target}")
+                    continue
+
+            if req.source[0] in ["fight", "gather"]:
                 continue
 
-            char = self.characters.get(char_name)
-            if not char:
-                continue
+    async def _fulfill_request(self, pending_request: PendingRequest) -> None:
+        """
+        2.2 Execute a pending request.
+        - Stop all workers
+        - Create deposit tasks for carriers
+        - When deposits done: create withdraw + complete_task for requesters
+        """
+        pending_request.status = "in_progress"
 
-            gathered = self.bank.content.get(task.target, 0)
-            if gathered < task.quantity:
-                continue
+        carriers = []
+        for char_name, char in self.characters.items():
+            for inv_item in char.inventory:
+                if (
+                    inv_item.get("code") == pending_request.target
+                    and inv_item.get("quantity", 0) > 0
+                ):
+                    if char_name not in carriers:
+                        carriers.append(char_name)
 
-            char.priority_task = None
-            task.mark_done()
-            await self.completion_queue.put(
-                TaskResult(task_id=task.id, character=char, success=True)
+        pending_request.pending_deposits_counter = len(carriers)
+
+        for carrier_name in carriers:
+            deposit_task = Task(
+                id=self._next_id(),
+                root_request_id=self._next_id(),
+                parent_id=None,
+                type="deposit",
+                target=pending_request.target,
+                quantity=self.bank.content.get(pending_request.target, 0),
+                priority=11,
+                required_skill=None,
+                required_skill_level=0,
+                required_materials=[],
+                status="pending",
+                assigned_to=carrier_name,
+                parent_request_id=pending_request.id,
+            )
+            self.pending_tasks[deposit_task.id] = deposit_task
+            self.characters[carrier_name].task_queue.put_nowait(deposit_task)
+
+        if len(carriers) == 0:
+            await self._complete_pending_request(pending_request)
+
+    async def _complete_pending_request(self, pending_request: PendingRequest) -> None:
+        """
+        Compléter la requête: créer withdraw + complete_task pour les requesters.
+        Cleanup systématique des structures.
+        """
+        for requester in pending_request.requesters:
+            char = self.characters[requester]
+            root_id = self._next_id()
+
+            withdraw_task = Task(
+                id=self._next_id(),
+                root_request_id=root_id,
+                parent_id=None,
+                type="withdraw",
+                target=pending_request.target,
+                quantity=pending_request.quantity,
+                priority=12,
+                required_skill=None,
+                required_skill_level=0,
+                required_materials=[],
+                status="pending",
+                assigned_to=requester,
+                parent_request_id=pending_request.id,
+            )
+            self.pending_tasks[withdraw_task.id] = withdraw_task
+            char.task_queue.put_nowait(withdraw_task)
+
+            complete_task = Task(
+                id=self._next_id(),
+                root_request_id=root_id,
+                parent_id=withdraw_task.id,
+                type="complete_task",
+                target=pending_request.target,
+                quantity=pending_request.quantity,
+                priority=12,
+                required_skill=None,
+                required_skill_level=0,
+                required_materials=[],
+                status="pending",
+                assigned_to=requester,
+                parent_request_id=pending_request.id,
+            )
+            self.pending_tasks[complete_task.id] = complete_task
+            char.task_queue.put_nowait(complete_task)
+
+        pending_request.status = "completed"
+        self.pending_requests.pop(pending_request.id, None)
+
+        for requester in pending_request.requesters:
+            self.active_requests.discard((pending_request.target, requester))
+
+    async def add_request(
+        self, target: str, quantity: int, requester: str
+    ) -> Optional[PendingRequest]:
+        """
+        Résolution complète d'une requête:
+        1. Si ressources dispo → immediate completion
+        2. Si requête en cours → join existing
+        3. Si materiel → resolve recursively + wait + craft
+        4. Sinon → gather/fight tasks
+
+        KEY: active_requests reste LOCKÉ jusqu'à ce que les tasks sont crées,
+        on ne le nettoie PAS dans le finally (car il doit persister pour éviter les doubles)
+        """
+        if (target, requester) in self.active_requests:
+            print(f"⏳ {requester} — Requête {target} déjà en cours, ignorer")
+            return None
+
+        self.active_requests.add((target, requester))
+
+        try:
+            available = self.total_available(target)
+
+            if available >= quantity:
+                pending = PendingRequest(
+                    id=self._next_request_id(),
+                    target=target,
+                    quantity=quantity,
+                    requester=requester,
+                    requesters=[requester],
+                    source=self.get_source(target) or ("gather", None),
+                    status="in_progress",
+                )
+                self.pending_requests[pending.id] = pending
+                await self._complete_pending_request(pending)
+                return None
+
+            existing_request = None
+            for req in self.pending_requests.values():
+                if req.target == target and req.status not in ["completed", "blocked"]:
+                    existing_request = req
+                    break
+
+            if existing_request:
+                if requester not in existing_request.requesters:
+                    existing_request.requesters.append(requester)
+                print(f"➕ {requester} ajouté à la requête existante pour {target}")
+                return existing_request
+
+            for req in self.pending_requests.values():
+                if req.requester == requester and req.status != "completed":
+                    print(f"⚠️ {requester} a déjà une requête en cours")
+                    return None
+
+            source = self.get_source(target)
+            if not source:
+                print(f"❌ Source introuvable pour {target}")
+                return None
+
+            pending_request = PendingRequest(
+                id=self._next_request_id(),
+                target=target,
+                quantity=quantity,
+                requester=requester,
+                requesters=[requester],
+                source=source,
+                status="pending",
             )
 
+            if source[0] == "craft":
+                item = self.items_db.get_by_code(target)
+                if item and item.craft_ingredients:
+                    for material in item.craft_ingredients:
+                        mat_qty = material["quantity"] * quantity
+                        # Récursivement ajouter la requête matériau
+                        await self.add_request(material["code"], mat_qty, requester)
+                        pending_request.materials_pending[material["code"]] = mat_qty
+
+                pending_request.status = "pending"
+                self.pending_requests[pending_request.id] = pending_request
+                print(
+                    f"⏳ Requête craft créée (attent matériaux): {quantity}x {target}"
+                )
+                return pending_request
+
+            if source[0] in ["gather", "fight"]:
+                workers = self.select_workers(source, source[1], requester)
+                if not workers:
+                    print(f"⚠️ Aucun worker compétent pour {target}")
+                    return None
+
+                to_farm = quantity - available
+                per_worker = to_farm // len(workers)
+                remainder = to_farm % len(workers)
+
+                pending_request.assigned_workers = workers
+                pending_request.status = "pending"
+
+                for i, worker in enumerate(workers):
+                    worker_qty = per_worker + (1 if i < remainder else 0)
+                    tasks = self.build_task_queue(
+                        source[0],  # type: ignore
+                        target,
+                        worker_qty,
+                        self.characters[worker].inventory_max_items,
+                    )
+                    for task in tasks:
+                        task.assigned_to = worker
+                        task.parent_request_id = pending_request.id
+                        self.pending_tasks[task.id] = task
+                        # 🔥 ASSIGN TASK TO WORKER'S QUEUE IMMEDIATELY
+                        self.characters[worker].task_queue.put_nowait(task)
+
+            self.pending_requests[pending_request.id] = pending_request
+            print(f"✅ Requête créée : {quantity}x {target} pour {requester}")
+            return pending_request
+
+        except Exception as e:
+            print(f"❌ Erreur dans add_request({target}, {quantity}, {requester}): {e}")
+            return None
+        finally:
+            pass
+
     async def on_task_complete(self, result: TaskResult):
+        """
+        Après qu'une tâche soit complétée:
+        1. Créer la deposit task
+        2. Vérifier si les requêtes peuvent avancer (craft materials?)
+        """
         task = self.pending_tasks.get(result.task_id)
         if not task:
             return
 
         await self.bank.sync()
+
+        if task.type in ["gather", "fight", "craft"] and result.success:
+            deposit_task = Task(
+                id=self._next_id(),
+                root_request_id=task.root_request_id,
+                parent_id=task.id,
+                type="deposit",
+                target=task.target,
+                quantity=task.quantity,
+                priority=11,
+                required_skill=None,
+                required_skill_level=0,
+                required_materials=[],
+                status="pending",
+                assigned_to=task.assigned_to,
+                parent_request_id=task.parent_request_id,
+            )
+            self.pending_tasks[deposit_task.id] = deposit_task
+            if task.assigned_to:
+                self.characters[task.assigned_to].task_queue.put_nowait(deposit_task)
+
+        await self._check_pending_requests()
 
         enfants = self.children.get(task.id, [])
         non_done = [t for t in enfants if t.status not in ["done", "cancelled"]]
@@ -88,7 +541,6 @@ class Account:
         if not non_done and task.parent_id is not None:
             parent = self.pending_tasks.get(task.parent_id)
             if parent:
-                # ← nettoyer les enfants done du parent avant réévaluation
                 self.children[parent.id] = [
                     t
                     for t in self.children.get(parent.id, [])
@@ -104,14 +556,12 @@ class Account:
         )
 
     def add_character(self, name: str) -> Character:
-        # Le personnage créera son propre client dans son __post_init__
         char = Character(name=name, account=self)
         self.characters[name] = char
         return char
 
     async def assign_task(self, task: Task):
 
-        # 1. Candidats éligibles (skill requis)
         candidats = [
             char
             for char in self.characters.values()
@@ -125,7 +575,6 @@ class Account:
             print(f"⏳ Aucun personnage avec le skill requis pour {task.target}")
             return
 
-        # 2. Trier par occupation : idle > priority_task libre > busy
         def occupation_score(char):
             if char.priority_task is None and char.task_queue.empty():
                 return 0  # complètement libre
@@ -135,7 +584,6 @@ class Account:
 
         selected = min(candidats, key=occupation_score)
 
-        # 3. Assigner
         task.assigned_to = selected.name
 
         if task.type == "gather":
@@ -155,12 +603,10 @@ class Account:
             print(f"❌ Item '{task.target}' introuvable.")
             return
 
-        # Tâche gather → assigner directement
         if task.type == "gather":
             await self.assign_task(task)
             return
 
-        # Tâche craft → vérifier les matériaux
         if not item.is_craftable:
             print(f"❌ '{task.target}' n'est pas craftable.")
             return
@@ -212,37 +658,6 @@ class Account:
             return
 
         await self.assign_task(task)
-
-    async def add_request(self, target: str, quantity: int = 1, priority: int = 10):
-        item = self.items_db.get_by_code(target)
-        if not item:
-            print(f"❌ Item '{target}' introuvable.")
-            return
-
-        task_id = self._next_id()
-        task_type = "craft" if item.is_craftable else "gather"
-        task = Task(
-            id=task_id,
-            root_request_id=task_id,
-            parent_id=None,
-            type=task_type,
-            target=target,
-            quantity=quantity,
-            priority=priority,
-            required_skill=item.craft_skill if item.is_craftable else None,
-            required_skill_level=item.craft_level if item.is_craftable else 0,
-            required_materials=item.craft_ingredients if item.is_craftable else [],
-            status="pending",
-            assigned_to=None,
-        )
-
-        self.pending_tasks[task.id] = task
-        self.children[task.id] = []
-        if task.type == "gather":
-            await self.assign_task(task)
-        else:
-            await self.try_assign_or_expand(task)
-        print(f"✅ Requête ajoutée : {quantity}x {target} (priorité {priority})")
 
     async def cancel_request(self, root_request_id: int):
         tasks = [

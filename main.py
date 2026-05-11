@@ -26,14 +26,13 @@ async def main():
         await account.initialize()
         ctx["account"] = account
 
-        # ← ici
         hero_tasks.append(asyncio.create_task(account.listen_completions()))
 
         ctx["items_manager"] = account.items_db
         ctx["world_map"] = account.world
 
         default_tasks = {
-            "Kioyaa": (fighting, ["yellow_slime"]),
+            "Kioyaa": (fighting, ["sheep"]),
             "Kioyaa_g": (gathering, ["coal_rocks", 600]),
             "Kio_wood": (fighting, ["wolf"]),
             "Kio_fish": (fighting, ["wolf"]),
@@ -52,7 +51,6 @@ async def main():
     init_task = asyncio.create_task(init_and_run())
 
     try:
-        # L'UI démarre immédiatement ; stdout est redirigé dès maintenant
         await run_cli(
             heroes, ctx, world_map_key="world_map", items_manager_key="items_manager"
         )

@@ -67,6 +67,19 @@ async def _add_task(account, target, quantity=1, priority=10):
     return f"📋 Requête : {quantity}x {target}"
 
 
+def _task_request(hero, task_type):
+    """Lance la routine tasking pour un type de tâche."""
+    if task_type not in ["items", "monsters"]:
+        return f"❌ Type de tâche invalide: {task_type}. Utilisez 'items' ou 'monsters'"
+
+    from routines.tasking import tasking
+
+    picto = "📦" if task_type == "items" else "⚔️"
+    hero.default_task = lambda: tasking(hero)
+    _cancel_current(hero)
+    return f"{picto} {hero.name} tasking {task_type}"
+
+
 # Dictionnaire des actions héros (sans paramètre)
 dict_hero_actions_no_param = {
     "stop": _stop_routine,
@@ -77,6 +90,7 @@ dict_hero_actions_with_param = {
     "fight": _fight_routine,
     "gather": _gather_routine,
     "craft": _craft_routine,
+    "task": _task_request,
 }
 
 # Dictionnaire des commandes globales
