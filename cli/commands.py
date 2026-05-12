@@ -1,5 +1,4 @@
-from routines import gathering, fighting, crafting
-from models import Character
+from routines import gathering, fighting, crafting, tasking
 
 
 def _make_task(char, fn, *args):
@@ -11,8 +10,10 @@ def _make_task(char, fn, *args):
             picto = "⚒️"
         case "crafting":
             picto = "🔧"
+        case "tasking":
+            picto = "❕"
         case _:
-            picto = "❓"
+            picto = "❔"
 
     def my_fn():
         return fn(char, *args)
@@ -62,6 +63,15 @@ def _craft_routine(hero, code, obj=1):
     return f"🔧 {hero.name} craft {code}"
 
 
+def _task_routine(hero, type="items"):
+    """Démarre une routine de tâche."""
+    if type not in ["items", "monsters"]:
+        return f"❌ Type de tâche inconnu : {type}"
+    hero.default_task = _make_task(hero, tasking, type)
+    _cancel_current(hero)
+    return f"📋 {hero.name} tâche {type}"
+
+
 async def _add_task(account, target, quantity=1, priority=10):
     await account.add_request(target, int(quantity), int(priority))
     return f"📋 Requête : {quantity}x {target}"
@@ -70,6 +80,7 @@ async def _add_task(account, target, quantity=1, priority=10):
 # Dictionnaire des actions héros (sans paramètre)
 dict_hero_actions_no_param = {
     "stop": _stop_routine,
+    "task": _task_routine,
 }
 
 # Dictionnaire des actions héros (avec paramètre)
@@ -77,6 +88,7 @@ dict_hero_actions_with_param = {
     "fight": _fight_routine,
     "gather": _gather_routine,
     "craft": _craft_routine,
+    "task": _task_routine,
 }
 
 # Dictionnaire des commandes globales

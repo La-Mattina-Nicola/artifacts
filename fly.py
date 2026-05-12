@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from models.account import Account
 
 # Importez vos modèles et routines normalement
-from routines import gathering, fighting, crafting
+from routines import gathering, fighting, crafting, tasking
 from cli.commands import _make_task
 
 load_dotenv()
@@ -34,10 +34,10 @@ async def main():
     # 3. Configuration des tâches par défaut
     default_tasks = {
         "Kioyaa": (fighting, ["mushmush"]),
-        "Kioyaa_g": (fighting, ["wolf"]),
-        "Kio_wood": (fighting, ["wolf"]),
-        "Kio_fish": (fighting, ["green_slime"]),
-        "Kio_util": (fighting, ["wolf"]),
+        "Kioyaa_g": (tasking, ["monsters"]),
+        "Kio_wood": (tasking, ["monsters"]),
+        "Kio_fish": (tasking, ["monsters"]),
+        "Kio_util": (tasking, ["monsters"]),
     }
 
     # 4. Initialisation des héros et démarrage de leurs boucles

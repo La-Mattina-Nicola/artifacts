@@ -62,13 +62,11 @@ class FightAction(BaseAction):
 
         if response.status_code == 200:
             data = res_json.get("data", {})
-
-            # Chercher le bon character par son nom dans data.characters
             characters = data.get("characters", [])
-            if characters:
-                for c in data.get("characters", []):
-                    if c["name"] == self.char.name:
-                        self.char.update_from_api(c)
+            char = next(
+                (c for c in characters if c.get("name") == self.char.name), None
+            )
+            self.char.update_from_api(char)
 
             # Gestion du résultat du combat
             fight_data = data.get("fight", {})
@@ -100,7 +98,9 @@ class FightAction(BaseAction):
             print(f"❌ Erreur {error_code}: {err.get('message')}")
 
             if error_code == 499:
-                await self.char.sync()
+                await self.char.update_from_api(
+                    response.json().get("data", {}).get("character", {})
+                )
 
             return False
 
@@ -126,7 +126,9 @@ class RestAction(BaseAction):
             print(f"❌ Erreur {error_code}: {err.get('message')}")
 
             if error_code == 499:
-                await self.char.sync()
+                await self.char.update_from_api(
+                    response.json().get("data", {}).get("character", {})
+                )
 
             return False
 
@@ -169,13 +171,18 @@ class GatherAction(BaseAction):
                 print(
                     f"🎒 Inventaire plein ! ({inv_total}/{self.char.inventory_max_items} items)"
                 )
-                # Sync pour mettre à jour l'état réel
-                await self.char.sync()
+
+                self.char.update_from_api(
+                    response.json().get("data", {}).get("character", {})
+                )
             elif error_code == 498:
                 print("❌ Outil manquant ou niveau de compétence trop faible.")
             elif error_code == 499:
                 print(f"⏱️ Cooldown: {error_msg}")
-                await self.char.sync()
+
+                self.char.update_from_api(
+                    response.json().get("data", {}).get("character", {})
+                )
             else:
                 print(f"Erreur {error_code}: {error_msg}")
 
@@ -226,8 +233,53 @@ class CraftAction(BaseAction):
             elif error_code == 497:
                 print(f"❌ {self.char.name} — Inventaire plein, impossible de crafter.")
             elif error_code == 499:
-                await self.char.sync()
+                await self.char.update_from_api(
+                    response.json().get("data", {}).get("character", {})
+                )
             else:
                 print(f"❌ Erreur {error_code}: {msg}")
 
+            return False
+
+
+class TaskAction(BaseAction):
+    async def accept(self):
+        response = await self.char.client.post(f"/my/{self.char.name}/action/task/new")
+        if response.status_code == 200:
+            self.char.update_from_api(
+                response.json().get("data", {}).get("character", {})
+            )
+            print(f"✅ Tâche acceptée : {self.char.task}")
+            return True
+        else:
+            print(f"❌ Échec de l'acceptation de la tâche : {response.text}")
+            return False
+
+    async def trade(self, to_trade: dict = {}):
+        response = await self.char.client.post(
+            f"/my/{self.char.name}/action/task/trade",
+            to_trade,
+        )
+        if response.status_code == 200:
+            self.char.update_from_api(
+                response.json().get("data", {}).get("character", {})
+            )
+            print(f"✅ Échange effectué pour la tâche : {self.char.task}")
+            return True
+        else:
+            print(f"❌ Échec de l'échange pour la tâche : {response.text}")
+            return False
+
+    async def complete(self):
+        response = await self.char.client.post(
+            f"/my/{self.char.name}/action/task/complete"
+        )
+        if response.status_code == 200:
+            self.char.update_from_api(
+                response.json().get("data", {}).get("character", {})
+            )
+            print(f"✅ Tâche complétée : {self.char.task}")
+            return True
+        else:
+            print(f"❌ Échec de la complétion de la tâche : {response.text}")
             return False

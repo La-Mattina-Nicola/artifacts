@@ -1,5 +1,6 @@
 import sys
 import asyncio
+import traceback
 from prompt_toolkit import Application
 from prompt_toolkit.layout import Layout, HSplit, VSplit
 from prompt_toolkit.layout.containers import FloatContainer, Float, ConditionalContainer
@@ -137,12 +138,32 @@ async def run_cli(
 
     # ── Key bindings ──────────────────────────────────────────────────────────
     kb = KeyBindings()
+    app_holder = []
 
     def _append_log(msg: str):
         log_lines.append(msg)
         joined = "\n".join(log_lines) + "\n"
         logs_area.text = joined
         logs_area.buffer.cursor_position = len(joined)
+
+    def _log_task_error(task: asyncio.Task, name: str):
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            _append_log(f"❌ Erreur dans {name}")
+            for line in traceback.format_exception(type(exc), exc, exc.__traceback__):
+                for part in line.rstrip().splitlines():
+                    _append_log(part)
+            try:
+                app_holder[0].invalidate()
+            except Exception:
+                pass
+
+    def _spawn_task(coro, name: str):
+        task = asyncio.create_task(coro)
+        task.add_done_callback(lambda t: _log_task_error(t, name))
+        return task
 
     @kb.add("f2")
     def _(event):
@@ -168,7 +189,10 @@ async def run_cli(
         if not cmd:
             return
         _append_log(f"> {cmd}")
-        asyncio.create_task(handle_command(cmd, heroes, ctx, log_lines, logs_area))
+        _spawn_task(
+            handle_command(cmd, heroes, ctx, log_lines, logs_area),
+            f"handle_command:{cmd}",
+        )
 
     @kb.add("c-c")
     @kb.add("c-q")
@@ -176,7 +200,6 @@ async def run_cli(
         event.app.exit()
 
     # ── Application ───────────────────────────────────────────────────────────
-    app_holder = []
     layout = Layout(root, focused_element=input_area)
     app = Application(
         layout=layout, key_bindings=kb, full_screen=True, mouse_support=True
@@ -202,12 +225,21 @@ async def run_cli(
 
                 app.invalidate()
             except Exception:
+                _append_log("⚠️ refresh_loop arrete suite a une erreur")
+                for line in traceback.format_exc().strip().splitlines():
+                    _append_log(line)
+                try:
+                    app_holder[0].invalidate()
+                except Exception:
+                    pass
                 break
 
     _real_stdout = sys.stdout
+    _real_stderr = sys.stderr
     sys.stdout = _StdoutToLogs(log_lines, logs_area, lambda: app_holder[0])
+    sys.stderr = _StdoutToLogs(log_lines, logs_area, lambda: app_holder[0])
 
-    refresh_task = asyncio.create_task(refresh_loop())
+    refresh_task = _spawn_task(refresh_loop(), "refresh_loop")
     try:
         await app.run_async()
     finally:

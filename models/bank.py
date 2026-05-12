@@ -56,6 +56,7 @@ class BankManager:
         res = await char.client.post(
             f"/my/{char.name}/action/bank/withdraw/item", json=items
         )
+
         if res.status_code == 200:
             data = res.json().get("data", {})
             for item in items:
@@ -101,3 +102,8 @@ class BankManager:
             char.cooldown_expiration = cooldown_data.get("expiration")
         elif data.get("cooldown_expiration"):
             char.cooldown_expiration = data.get("cooldown_expiration")
+
+    def enough_in_bank(self, item_code: str, quantity: int) -> bool:
+        """Vérifie si la banque contient au moins `quantity` de `item_code`."""
+        value_in_bank = self.content.get(item_code, 0)
+        return value_in_bank >= quantity

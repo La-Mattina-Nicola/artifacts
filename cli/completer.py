@@ -23,7 +23,7 @@ class GameCompleter(Completer):
             return
 
         if len(parts) == 2:
-            actions = ["fight", "gather", "craft"]
+            actions = ["fight", "gather", "craft", "task"]
             for a in actions:
                 if a.startswith(parts[1].lower()):
                     yield Completion(a, start_position=-len(parts[1]))
@@ -46,3 +46,8 @@ class GameCompleter(Completer):
             for code in (self.items_manager.items or {}).keys():
                 if code.startswith(prefix):
                     yield Completion(code, start_position=-len(prefix))
+
+        elif action == "task":
+            for kind in ("items", "monsters"):
+                if kind.startswith(prefix):
+                    yield Completion(kind, start_position=-len(prefix))

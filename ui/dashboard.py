@@ -35,13 +35,16 @@ def render_hero_block(hero, show_skills: bool = False) -> list[str]:
     active_task = hero.priority_task or hero.default_task
 
     if active_task is None:
-        action, target = "Waiting ...", ""
+        action, target = "Waiting", "..."
     else:
         action = getattr(active_task, "_action", "TASK")
         target = getattr(active_task, "_target", "?")
 
     cd = _get_cd_remaining(hero)
-    _TARGET_W = _TEXT_W - (len(action) + 2)  # 12
+    if action == "Waiting ..":
+        _TARGET_W = _TEXT_W - (len(action))
+    else:
+        _TARGET_W = _TEXT_W - (len(action) + 2)  # 12
     action_line = f"{action}   {target[:_TARGET_W]:<{_TARGET_W}}"
     action_line = f"{action_line:<18}"
     lines = [

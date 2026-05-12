@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, TYPE_CHECKING
 from datetime import datetime, timezone
-from models.task import TaskResult, Task
+from models.tasks import TaskResult, Task
 
 if TYPE_CHECKING:
     from models.account import Account
@@ -43,6 +43,10 @@ class Character:
     inventory: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     cooldown_expiration: str = None
     max_dmg_seen = 0
+    task = None
+    task_type = None
+    task_progress = 0
+    task_total = 0
 
     def __post_init__(self):
         from api.client import AsyncApiClient
@@ -52,21 +56,26 @@ class Character:
             RestAction,
             GatherAction,
             CraftAction,
+            TaskAction,
         )
 
         self.client = AsyncApiClient(token=self.account.token, character=self)
         self.world_map = self.account.world
         self.items_db = self.account.items_db
         self.banker = CharacterBankInterface(self, self.account.bank)
-        self.task_queue = asyncio.Queue()
         self.mover = MoveAction(self)
         self.fighter = FightAction(self)
         self.rester = RestAction(self)
         self.gatherer = GatherAction(self)
         self.crafter = CraftAction(self)
+        self.tasker = TaskAction(self)
 
         self.default_task = None
+        self.todo_task = None
+        self.task_queue = asyncio.Queue()
         self.priority_task = None
+
+        self.paused = False
 
     @property
     def is_working(self) -> bool:
@@ -88,29 +97,39 @@ class Character:
             if wait_time > 0:
                 await asyncio.sleep(wait_time + 1)
 
+    async def _run_tasklike(self, task) -> bool:
+        if task is None:
+            return False
+        if asyncio.iscoroutine(task):
+            await task
+            return True
+        if callable(task):
+            result = task()
+            if asyncio.iscoroutine(result):
+                await result
+            return True
+        if isinstance(task, Task):
+            await self._execute(task)
+            return True
+        return False
+
     async def main_loop(self):
         while True:
             try:
                 await self.wait_until_ready()
 
-                if self.priority_task is not None:
-                    await self.priority_task()
+                if self.todo_task is None and not self.task_queue.empty():
+                    self.todo_task = await self.task_queue.get()
 
-                elif not self.task_queue.empty():
-                    task = await self.task_queue.get()
-                    task.status = "running"
-                    success = await self._execute(task)
-                    if success:
-                        task.mark_done()
-                    else:
-                        task.status = "failed"
-                    await self.account.completion_queue.put(
-                        TaskResult(task_id=task.id, character=self, success=success)
-                    )
-                    self.task_queue.task_done()
+                if self.priority_task is not None:
+                    await self._run_tasklike(self.priority_task)
+
+                elif self.todo_task is not None:
+                    await self._run_tasklike(self.todo_task)
+                    self.todo_task = None
 
                 elif self.default_task:
-                    await self.default_task()
+                    await self._run_tasklike(self.default_task)
 
                 else:
                     await asyncio.sleep(1)
@@ -138,6 +157,10 @@ class Character:
         self.cooldown_expiration = data.get(
             "cooldown_expiration", self.cooldown_expiration
         )
+        self.task = data.get("task", self.task)
+        self.task_type = data.get("task_type", self.task_type)
+        self.task_progress = data.get("task_progress", self.task_progress)
+        self.task_total = data.get("task_total", self.task_total)
 
         # Mettre à jour les skills dynamiquement (comme dans sync)
         for skill in [
@@ -177,6 +200,10 @@ class Character:
             self.inventory = data["inventory"]
             self.inventory_max_items = data["inventory_max_items"]
             self.cooldown_expiration = data["cooldown_expiration"]
+            self.task = data.get("task")
+            self.task_type = data.get("task_type")
+            self.task_progress = data.get("task_progress", 0)
+            self.task_total = data.get("task_total", 0)
 
             # Dans sync(), après self.inventory_max_items = ...
             for skill in [
