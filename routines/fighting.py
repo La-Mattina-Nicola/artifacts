@@ -4,7 +4,7 @@ from .utils import cancellable
 
 @cancellable
 async def fighting(
-    char: Character, resource_code, quantity: int | None = 1, treeshold: int = 150
+    char: Character, resource_code, quantity: int | None = 1, treeshold: int = 424
 ):
     """Routine de farm fighting.
 
