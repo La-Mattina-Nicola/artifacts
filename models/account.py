@@ -21,9 +21,7 @@ class Account:
         self.completion_queue: asyncio.Queue = asyncio.Queue()
         self.pending_tasks: Dict[int, Task] = {}
         self.children: Dict[int, list[Task]] = {}
-        self.pending_requests: Dict[
-            int, PendingRequest
-        ] = {} 
+        self.pending_requests: Dict[int, PendingRequest] = {}
 
         self._task_counter = 0
         self._char_rotation_index = 0
@@ -47,7 +45,6 @@ class Account:
         self._request_counter += 1
         return self._request_counter
 
-
     def total_available(self, item_code: str) -> int:
         """
         1.1 Total available items: bank + all character inventories.
@@ -68,31 +65,33 @@ class Account:
         Returns ("craft", skill), ("gather", None), ("fight", None), or None.
         """
         item = self.items_db.get_by_code(item_code)
-        if not item:
-            return None
 
-        if item.is_craftable:
+        # Check if craftable first (items_db priority)
+        if item and item.is_craftable:
             return ("craft", item.craft_skill)
 
-        if hasattr(self.world, "resources"):
+        # Check if gatherable from world resources
+        if hasattr(self.world, "resources") and self.world.resources:
             if item_code in self.world.resources:
                 return ("gather", None)
 
+            # Try alternative names
             alt_codes = [
-                item_code + "s",  
-                item_code[:-1]
-                if item_code.endswith("s")
-                else None, 
-                item_code.replace(
-                    "_ore", "_rocks"
-                ), 
+                item_code + "s",
+                item_code[:-1] if item_code.endswith("s") else None,
+                item_code.replace("_ore", "_rocks"),
                 item_code.replace("_rock", "_rocks"),
             ]
             for alt_code in alt_codes:
                 if alt_code and alt_code in self.world.resources:
                     return ("gather", None)
 
-        return ("fight", None)
+        # If item exists but not craftable/gatherable, assume monster drop
+        if item:
+            return ("fight", None)
+
+        # Item not found in any source
+        return None
 
     def select_workers(
         self, source: tuple[str, Optional[str]], skill: Optional[str], requester: str
@@ -142,9 +141,8 @@ class Account:
     ) -> list[Task]:
         """
         2.1 Build task queue with chunking based on inventory capacity.
-        Creates ONLY the main action tasks (gather/fight/craft).
-        Deposit tasks will be created in on_task_complete() after each chunk finishes.
-        Returns list of Task objects.
+        Includes deposit tasks after each chunk (Phase 2.1 spec).
+        Returns list of Task objects with alternating action + deposit.
         """
         tasks = []
         task_list_id = self._next_id()
@@ -152,12 +150,14 @@ class Account:
         chunks = quantity // inventory_max
         remainder = quantity % inventory_max
 
+        # Full chunks: action + deposit
         for i in range(chunks):
-            task = Task(
+            # Action task (gather/fight/craft)
+            action_task = Task(
                 id=self._next_id(),
                 root_request_id=task_list_id,
                 parent_id=None,
-                type=action, 
+                type=action,  # type: ignore
                 target=target,
                 quantity=inventory_max,
                 priority=10,
@@ -167,14 +167,32 @@ class Account:
                 status="pending",
                 assigned_to=None,
             )
-            tasks.append(task)
+            tasks.append(action_task)
 
+            # Deposit task after collecting
+            deposit_task = Task(
+                id=self._next_id(),
+                root_request_id=task_list_id,
+                parent_id=action_task.id,
+                type="deposit",
+                target=target,
+                quantity=inventory_max,
+                priority=11,  # Slightly higher priority
+                required_skill=None,
+                required_skill_level=0,
+                required_materials=[],
+                status="pending",
+                assigned_to=None,
+            )
+            tasks.append(deposit_task)
+
+        # Remainder: action + deposit
         if remainder > 0:
-            task = Task(
+            remainder_action = Task(
                 id=self._next_id(),
                 root_request_id=task_list_id,
                 parent_id=None,
-                type=action, 
+                type=action,  # type: ignore
                 target=target,
                 quantity=remainder,
                 priority=10,
@@ -184,7 +202,23 @@ class Account:
                 status="pending",
                 assigned_to=None,
             )
-            tasks.append(task)
+            tasks.append(remainder_action)
+
+            remainder_deposit = Task(
+                id=self._next_id(),
+                root_request_id=task_list_id,
+                parent_id=remainder_action.id,
+                type="deposit",
+                target=target,
+                quantity=remainder,
+                priority=11,
+                required_skill=None,
+                required_skill_level=0,
+                required_materials=[],
+                status="pending",
+                assigned_to=None,
+            )
+            tasks.append(remainder_deposit)
 
         return tasks
 
@@ -268,8 +302,8 @@ class Account:
                             target=req.target,
                             quantity=worker_qty,
                             priority=10,
-                            required_skill=req.source[1], 
-                            required_skill_level=1,  
+                            required_skill=req.source[1],
+                            required_skill_level=1,
                             required_materials=list(req.materials_pending.items()),
                             status="pending",
                             assigned_to=worker,
@@ -287,155 +321,105 @@ class Account:
 
     async def _fulfill_request(self, pending_request: PendingRequest) -> None:
         """
-        2.2 Execute a pending request.
-        - Stop all workers
-        - Create deposit tasks for carriers
-        - When deposits done: create withdraw + complete_task for requesters
+        DÉPRÉCIÉ: add_request() crée déjà gather/fight/craft/deposit directement.
+        tasking() gère le withdraw/trade/complete_task.
+        Cette fonction n'est plus utilisée.
         """
-        pending_request.status = "in_progress"
-
-        carriers = []
-        for char_name, char in self.characters.items():
-            for inv_item in char.inventory:
-                if (
-                    inv_item.get("code") == pending_request.target
-                    and inv_item.get("quantity", 0) > 0
-                ):
-                    if char_name not in carriers:
-                        carriers.append(char_name)
-
-        pending_request.pending_deposits_counter = len(carriers)
-
-        for carrier_name in carriers:
-            deposit_task = Task(
-                id=self._next_id(),
-                root_request_id=self._next_id(),
-                parent_id=None,
-                type="deposit",
-                target=pending_request.target,
-                quantity=self.bank.content.get(pending_request.target, 0),
-                priority=11,
-                required_skill=None,
-                required_skill_level=0,
-                required_materials=[],
-                status="pending",
-                assigned_to=carrier_name,
-                parent_request_id=pending_request.id,
-            )
-            self.pending_tasks[deposit_task.id] = deposit_task
-            self.characters[carrier_name].task_queue.put_nowait(deposit_task)
-
-        if len(carriers) == 0:
-            await self._complete_pending_request(pending_request)
+        pass
 
     async def _complete_pending_request(self, pending_request: PendingRequest) -> None:
         """
-        Compléter la requête: créer withdraw + complete_task pour les requesters.
-        Cleanup systématique des structures.
+        Cleanup après que tasking() ait géré le rendu.
+        IMPORTANT: Ne crée PAS withdraw/trade/complete_task.
+        C'est tasking() qui gère tout ça directement.
         """
-        for requester in pending_request.requesters:
-            char = self.characters[requester]
-            root_id = self._next_id()
-
-            withdraw_task = Task(
-                id=self._next_id(),
-                root_request_id=root_id,
-                parent_id=None,
-                type="withdraw",
-                target=pending_request.target,
-                quantity=pending_request.quantity,
-                priority=12,
-                required_skill=None,
-                required_skill_level=0,
-                required_materials=[],
-                status="pending",
-                assigned_to=requester,
-                parent_request_id=pending_request.id,
-            )
-            self.pending_tasks[withdraw_task.id] = withdraw_task
-            char.task_queue.put_nowait(withdraw_task)
-
-            complete_task = Task(
-                id=self._next_id(),
-                root_request_id=root_id,
-                parent_id=withdraw_task.id,
-                type="complete_task",
-                target=pending_request.target,
-                quantity=pending_request.quantity,
-                priority=12,
-                required_skill=None,
-                required_skill_level=0,
-                required_materials=[],
-                status="pending",
-                assigned_to=requester,
-                parent_request_id=pending_request.id,
-            )
-            self.pending_tasks[complete_task.id] = complete_task
-            char.task_queue.put_nowait(complete_task)
-
         pending_request.status = "completed"
         self.pending_requests.pop(pending_request.id, None)
 
         for requester in pending_request.requesters:
             self.active_requests.discard((pending_request.target, requester))
 
+        print(f"✅ Requête {pending_request.target} complétée et nettoyée")
+
     async def add_request(
         self, target: str, quantity: int, requester: str
     ) -> Optional[PendingRequest]:
         """
         Résolution complète d'une requête:
-        1. Si ressources dispo → immediate completion
-        2. Si requête en cours → join existing
+        1. Si requête en cours → join existing
+        2. Si ressources dispo → mark as completed (tasking() s'occupe de la livraison)
         3. Si materiel → resolve recursively + wait + craft
         4. Sinon → gather/fight tasks
 
-        KEY: active_requests reste LOCKÉ jusqu'à ce que les tasks sont crées,
-        on ne le nettoie PAS dans le finally (car il doit persister pour éviter les doubles)
+        IMPORTANT: Vérifier existing_request AVANT active_requests pour éviter les doublons!
         """
-        if (target, requester) in self.active_requests:
-            print(f"⏳ {requester} — Requête {target} déjà en cours, ignorer")
+        # =====================================================================
+        # 1. Check for EXISTING request (completed ou en cours)
+        # =====================================================================
+        existing_request = None
+        for req in self.pending_requests.values():
+            if req.target == target and req.status not in ["blocked"]:
+                existing_request = req
+                break
+
+        # Si requête existe et pas complétée → ajouter le requester
+        if existing_request and existing_request.status != "completed":
+            if requester not in existing_request.requesters:
+                existing_request.requesters.append(requester)
+            print(f"➕ {requester} ajouté à la requête existante pour {target}")
+            return existing_request
+
+        # Si requête existe et EST complétée → ne rien faire, tasking() la gère
+        if existing_request and existing_request.status == "completed":
+            print(f"✅ {target} déjà en cours de livraison par tasking()")
             return None
 
+        # =====================================================================
+        # 2. Check if already being created by another concurrent call
+        # =====================================================================
+        if (target, requester) in self.active_requests:
+            print(f"⏳ {requester} — Requête {target} déjà en création, patienter...")
+            return None
+
+        # Lock this request creation
         self.active_requests.add((target, requester))
 
         try:
             available = self.total_available(target)
 
-            if available >= quantity:
+            # =====================================================================
+            # 3. Check if resources exist (ONLY for craft, not gather/fight)
+            # =====================================================================
+            # For gather/fight: need to CREATE TASKS even if resources exist!
+            # Because someone must actively go collect them.
+            source = self.get_source(target)
+            if not source:
+                print(f"❌ Source introuvable pour {target}")
+                return None
+
+            # ONLY mark as "completed" for craft items that already exist
+            # gather/fight MUST create tasks because they're active actions
+            if available >= quantity and source[0] == "craft":
                 pending = PendingRequest(
                     id=self._next_request_id(),
                     target=target,
                     quantity=quantity,
                     requester=requester,
                     requesters=[requester],
-                    source=self.get_source(target) or ("gather", None),
-                    status="in_progress",
+                    source=source,
+                    status="completed",
                 )
                 self.pending_requests[pending.id] = pending
-                await self._complete_pending_request(pending)
+                print(f"✅ {target} déjà crafté ({available}), tasking() livrera")
                 return None
 
-            existing_request = None
-            for req in self.pending_requests.values():
-                if req.target == target and req.status not in ["completed", "blocked"]:
-                    existing_request = req
-                    break
-
-            if existing_request:
-                if requester not in existing_request.requesters:
-                    existing_request.requesters.append(requester)
-                print(f"➕ {requester} ajouté à la requête existante pour {target}")
-                return existing_request
-
+            # =====================================================================
+            # 4. Check if requester already has another pending request
+            # =====================================================================
             for req in self.pending_requests.values():
                 if req.requester == requester and req.status != "completed":
                     print(f"⚠️ {requester} a déjà une requête en cours")
                     return None
-
-            source = self.get_source(target)
-            if not source:
-                print(f"❌ Source introuvable pour {target}")
-                return None
 
             pending_request = PendingRequest(
                 id=self._next_request_id(),
@@ -499,7 +483,8 @@ class Account:
             print(f"❌ Erreur dans add_request({target}, {quantity}, {requester}): {e}")
             return None
         finally:
-            pass
+            # Nettoyer active_requests pour permettre les appels futurs de trouver la requête créée
+            self.active_requests.discard((target, requester))
 
     async def on_task_complete(self, result: TaskResult):
         """

@@ -13,7 +13,7 @@ async def gathering(char: "Character", resource_code, quantity=None):
     # ✅ STOP condition
     if quantity is not None and current >= quantity:
         print(f"✅ {resource_code} atteint ({current}/{quantity})")
-        char.priority_task = None
+        char.task_active = None
         return
 
     # 1. Inventaire plein → banque

@@ -64,7 +64,6 @@ class Character:
         self.world_map = self.account.world
         self.items_db = self.account.items_db
         self.banker = CharacterBankInterface(self, self.account.bank)
-        self.task_queue = asyncio.Queue()
         self.mover = MoveAction(self)
         self.fighter = FightAction(self)
         self.rester = RestAction(self)
@@ -77,6 +76,8 @@ class Character:
         from routines.tasking import tasking
 
         self.default_task = lambda: tasking(self)
+        self.task_queue = asyncio.Queue()
+        self.task_active = None
         self.priority_task = None
 
     @property
@@ -100,6 +101,7 @@ class Character:
                 await asyncio.sleep(wait_time + 1)
 
     async def main_loop(self):
+        active_task_ref = None  # pour envoyer le TaskResult quand c'est fini
         while True:
             try:
                 await self.wait_until_ready()
@@ -107,28 +109,24 @@ class Character:
                 if self.priority_task is not None:
                     await self.priority_task()
 
+                elif self.task_active is not None:
+                    await self.task_active()
+                    # Si la routine s'est elle-même effacée → tâche terminée
+                    if self.task_active is None and active_task_ref is not None:
+                        active_task_ref.mark_done()
+                        await self.account.completion_queue.put(
+                            TaskResult(
+                                task_id=active_task_ref.id, character=self, success=True
+                            )
+                        )
+                        active_task_ref = None
+
                 elif not self.task_queue.empty():
                     task = await self.task_queue.get()
                     task.status = "running"
-                    success = await self._execute(task)
-                    if success:
-                        task.mark_done()
-                    else:
-                        task.status = "failed"
-                    await self.account.completion_queue.put(
-                        TaskResult(task_id=task.id, character=self, success=success)
-                    )
+                    active_task_ref = task
+                    self._setup_active_task(task)  # remplace _execute
                     self.task_queue.task_done()
-
-                    # Phase 3.1: Call on_action after task completion
-                    await self.account.on_action(
-                        self.name,
-                        {
-                            "action": task.type,
-                            "target": task.target,
-                            "inventory": self.inventory,
-                        },
-                    )
 
                 elif self.default_task:
                     await self.default_task()
@@ -141,6 +139,31 @@ class Character:
             except Exception as e:
                 print(f"⚠️ Erreur {self.name}: {e}")
                 await asyncio.sleep(2)
+
+    def _setup_active_task(self, task: Task):
+        """Assigne task_active avec la lambda appropriée selon le type."""
+        from routines import gathering, fighting, crafting
+
+        if task.type == "gather":
+            current = self.account.bank.content.get(task.target, 0)
+            target = current + task.quantity
+            self.task_active = lambda: gathering(self, task.target, target)
+
+        elif task.type == "craft":
+            current = self.account.bank.content.get(task.target, 0)
+            target = current + task.quantity
+            self.task_active = lambda: crafting(self, task.target, target)
+
+        elif task.type == "fight":
+            self.task_active = lambda: fighting(self, task.target, task.quantity)
+
+        else:
+            # Pour deposit/withdraw/complete_task : one-shot, pas besoin de boucle
+            async def one_shot():
+                await self._execute(task)
+                self.task_active = None
+
+            self.task_active = one_shot
 
     def update_from_api(self, data: dict):
         """Mets à jour le character à partir des données API."""
@@ -284,11 +307,17 @@ class Character:
         # ACTION TASKS (gather/craft/fight)
         # ════════════════════════════════════════════════════════════════
         if task.type == "gather":
+            # quantity dans la task = delta à récolter, pas cible absolue
+            current_in_bank = self.account.bank.content.get(task.target, 0)
+            absolute_target = current_in_bank + task.quantity
+            await gathering(self, task.target, absolute_target)
             await gathering(self, task.target, task.quantity)
             return True
 
         elif task.type == "craft":
-            await crafting(self, task.target, task.quantity)
+            current_in_bank = self.account.bank.content.get(task.target, 0)
+            absolute_target = current_in_bank + task.quantity
+            await crafting(self, task.target, absolute_target)
             return True
 
         elif task.type == "fight":

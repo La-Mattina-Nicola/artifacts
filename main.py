@@ -33,10 +33,6 @@ async def main():
 
         default_tasks = {
             "Kioyaa": (fighting, ["sheep"]),
-            "Kioyaa_g": (gathering, ["coal_rocks", 600]),
-            "Kio_wood": (fighting, ["wolf"]),
-            "Kio_fish": (fighting, ["wolf"]),
-            "Kio_util": (fighting, ["wolf"]),
         }
 
         for key, value in default_tasks.items():
