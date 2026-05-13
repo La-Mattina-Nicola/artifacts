@@ -24,12 +24,15 @@ class Account:
         self.pending_tasks: Dict[int, Task] = {}
 
     async def initialize(self):
+        print("Before init ...")
         await asyncio.gather(
             self.items_db.load_or_update(),
             self.bank.sync(),
             self.world.init_map(),
             self.resources.init(),
         )
+
+        print("After init ...")
 
     def add_character(self, name: str) -> Character:
         # Le personnage créera son propre client dans son __post_init__
@@ -74,7 +77,7 @@ class Account:
                         )
                         self.characters[eligible.name].task_queue.put_nowait(
                             lambda: gathering(
-                                eligible, gather_task.target, gather_task.quantity
+                                eligible, gather_task.target, requester.task_total
                             )
                         )
                     else:
@@ -83,10 +86,8 @@ class Account:
                         )
                     return False
                 else:
-                    # TODO: gérer les tâches de craft en vérifiant les matériaux nécessaires et en créant des tâches de collecte pour ceux manquants
-                    print(
-                        "⚠️ Tâche de craft détectée mais pas encore gérée dans is_task_doable."
-                    )
+                    # get all required items for the craft and check if we have them in the bank, if not create gather tasks for them
+
                     pass
 
             pass

@@ -161,7 +161,8 @@ class GatherAction(BaseAction):
             error_msg = res_json.get("error", {}).get("message", "Erreur inconnue")
 
             if error_code == 493:
-                print("⚠️ La ressource n'est pas disponible sur cette case.")
+                print(f"⚠️ {self.char.name} The character's skill level is too low.")
+
             elif error_code == 497:
                 inv_total = sum(
                     item.get("quantity", 0)

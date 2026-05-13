@@ -10,6 +10,8 @@ class BankManager:
 
     async def sync(self):
         """Synchronise tout le contenu de la banque (Items + Gold)."""
+
+        print("init bank...")
         all_items = {}
         page = 1
         while True:
@@ -107,3 +109,7 @@ class BankManager:
         """Vérifie si la banque contient au moins `quantity` de `item_code`."""
         value_in_bank = self.content.get(item_code, 0)
         return value_in_bank >= quantity
+
+    def quantity(self, item_code: str) -> int:
+        """Retourne la quantité de `item_code` présente dans la banque."""
+        return self.content.get(item_code, 0)

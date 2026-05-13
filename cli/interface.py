@@ -25,7 +25,7 @@ class _StdoutToLogs:
         self._buf += text
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
-            if line:
+            if line and "\x1b" not in line and "\r" not in line:
                 self._log_lines.append(line)
                 joined = "\n".join(self._log_lines) + "\n"
                 self._logs_area.text = joined
