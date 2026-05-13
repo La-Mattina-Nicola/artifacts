@@ -243,6 +243,13 @@ class Character:
         )
         return (used + margin) >= self.inventory_max_items
 
+    def inventory_quantity(self, item_code: str) -> int:
+        return sum(
+            item.get("quantity", 0)
+            for item in self.inventory
+            if item.get("code") == item_code
+        )
+
     def attack(self):
         return self.fighter.attack()
 

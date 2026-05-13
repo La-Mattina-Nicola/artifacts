@@ -6,7 +6,13 @@ from .utils import cancellable
 async def gathering(char: "Character", resource_code, quantity=1):
     await char.sync()
 
-    while quantity > 0:
+    def gathered_quantity():
+
+        bank_quantity = char.account.bank.quantity(resource_code)
+        actual_quantity = char.inventory_quantity(resource_code) + bank_quantity
+        return actual_quantity
+
+    while gathered_quantity() < quantity:
         await char.wait_until_ready()
 
         # 1. Inventaire plein → banque
@@ -32,8 +38,7 @@ async def gathering(char: "Character", resource_code, quantity=1):
         # 2. Résolution du node_code
         current_pos = (char.x, char.y)
 
-        # Tentative directe : resource_code est peut-être déjà un code de nœud
-        pos = char.world_map.get_nearest_resource(resource_code, current_pos)
+        pos = char.account.world.get_nearest_resource(resource_code, current_pos)
 
         if not pos:
             # Sinon, on le traite comme un item code → on cherche ses sources
@@ -51,7 +56,5 @@ async def gathering(char: "Character", resource_code, quantity=1):
             continue
 
         # 4. Gather
-        ok = await char.gather()
-        if ok:
-            quantity -= 1
-            await char.sync()
+        await char.gather()
+        await char.sync()

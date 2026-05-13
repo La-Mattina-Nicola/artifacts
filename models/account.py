@@ -77,7 +77,7 @@ class Account:
                         )
                         self.characters[eligible.name].task_queue.put_nowait(
                             lambda: gathering(
-                                eligible, gather_task.target, gather_task.quantity
+                                eligible, gather_task.target, requester.task_total
                             )
                         )
                     else:
@@ -86,9 +86,8 @@ class Account:
                         )
                     return False
                 else:
-                    # TODO: gérer les tâches de craft en vérifiant les matériaux nécessaires et en créant des tâches de collecte pour ceux manquants
-                    # verifier si assez de ressource pour le craft, sinon créer des tâches de collecte pour les ressources manquantes
-                    
+                    # get all required items for the craft and check if we have them in the bank, if not create gather tasks for them
+
                     pass
 
             pass
