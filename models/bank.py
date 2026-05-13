@@ -10,6 +10,8 @@ class BankManager:
 
     async def sync(self):
         """Synchronise tout le contenu de la banque (Items + Gold)."""
+
+        print("init bank...")
         all_items = {}
         page = 1
         while True:

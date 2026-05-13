@@ -89,6 +89,7 @@ class ItemsManager:
         C'est la méthode à appeler dans Account.initialize() pour éviter
         les appels API inutiles.
         """
+        print("init items manager...")
         if not self.load():
             await self.update()
 

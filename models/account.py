@@ -24,12 +24,15 @@ class Account:
         self.pending_tasks: Dict[int, Task] = {}
 
     async def initialize(self):
+        print("Before init ...")
         await asyncio.gather(
             self.items_db.load_or_update(),
             self.bank.sync(),
             self.world.init_map(),
             self.resources.init(),
         )
+
+        print("After init ...")
 
     def add_character(self, name: str) -> Character:
         # Le personnage créera son propre client dans son __post_init__
@@ -84,9 +87,8 @@ class Account:
                     return False
                 else:
                     # TODO: gérer les tâches de craft en vérifiant les matériaux nécessaires et en créant des tâches de collecte pour ceux manquants
-                    print(
-                        "⚠️ Tâche de craft détectée mais pas encore gérée dans is_task_doable."
-                    )
+                    # verifier si assez de ressource pour le craft, sinon créer des tâches de collecte pour les ressources manquantes
+                    
                     pass
 
             pass

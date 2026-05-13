@@ -45,6 +45,7 @@ def auto_cooldown(func):
         except Exception:
             pass
         return response
+
     return wrapper
 
 

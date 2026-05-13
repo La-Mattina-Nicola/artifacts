@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import traceback
 from contextlib import suppress
@@ -19,6 +20,47 @@ async def main():
     heroes = []
     ctx = {"items_manager": None, "world_map": None}
     hero_tasks = []
+    stdout_ready = asyncio.Event()
+    ctx["stdout_ready"] = stdout_ready
+    bootstrap_logs = []
+    ctx["bootstrap_logs"] = bootstrap_logs
+
+    class _BootstrapStdout:
+        def __init__(self, log_lines, real_stream):
+            self._log_lines = log_lines
+            self._real_stream = real_stream
+            self._buf = ""
+
+        def write(self, text: str):
+            if self._real_stream:
+                try:
+                    self._real_stream.write(text)
+                    if "\n" in text:
+                        self._real_stream.flush()
+                except Exception:
+                    pass
+            self._buf += text
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                if line:
+                    self._log_lines.append(line)
+
+        def flush(self):
+            if self._real_stream:
+                try:
+                    self._real_stream.flush()
+                except Exception:
+                    pass
+
+        def isatty(self):
+            return False
+
+    real_stdout = sys.stdout
+    real_stderr = sys.stderr
+    ctx["real_stdout"] = real_stdout
+    ctx["real_stderr"] = real_stderr
+    sys.stdout = _BootstrapStdout(bootstrap_logs, real_stdout)
+    sys.stderr = _BootstrapStdout(bootstrap_logs, real_stderr)
 
     def _log_task_result(task: asyncio.Task, name: str):
         if task.cancelled():
@@ -49,6 +91,10 @@ async def main():
     loop.set_exception_handler(_handle_exception)
 
     async def init_and_run():
+        try:
+            await asyncio.wait_for(stdout_ready.wait(), timeout=2)
+        except asyncio.TimeoutError:
+            pass
         print("🚀 Initialisation du compte...")
 
         account = Account(token=os.getenv("ARTIFACTS_TOKEN"))
@@ -60,13 +106,14 @@ async def main():
 
         ctx["items_manager"] = account.items_db
         ctx["world_map"] = account.world
+        ctx["bank"] = account.bank
 
         default_tasks = {
-            "Kioyaa": (fighting, ["mushmush"]),
-            "Kioyaa_g": (tasking, ["monsters"]),
-            "Kio_wood": (tasking, ["monsters"]),
-            "Kio_fish": (tasking, ["monsters"]),
-            "Kio_util": (tasking, ["monsters"]),
+            "Kioyaa": (tasking, ["items"]),
+            "Kioyaa_g": (tasking, ["items"]),
+            "Kio_wood": (tasking, ["items"]),
+            "Kio_fish": (tasking, ["items"]),
+            "Kio_util": (tasking, ["items"]),
         }
 
         for key, value in default_tasks.items():

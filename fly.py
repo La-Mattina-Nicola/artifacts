@@ -33,11 +33,11 @@ async def main():
 
     # 3. Configuration des tâches par défaut
     default_tasks = {
-        "Kioyaa": (fighting, ["mushmush"]),
-        "Kioyaa_g": (tasking, ["monsters"]),
-        "Kio_wood": (tasking, ["monsters"]),
-        "Kio_fish": (tasking, ["monsters"]),
-        "Kio_util": (tasking, ["monsters"]),
+        "Kioyaa": (tasking, ["items"]),
+        "Kioyaa_g": (tasking, ["items"]),
+        "Kio_wood": (tasking, ["items"]),
+        "Kio_fish": (tasking, ["items"]),
+        "Kio_util": (tasking, ["items"]),
     }
 
     # 4. Initialisation des héros et démarrage de leurs boucles

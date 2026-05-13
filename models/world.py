@@ -49,6 +49,8 @@ class WorldMap:
         self.workshops: Dict[str, List[Tuple[int, int]]] = {}
 
     async def init_map(self, force_update=False):
+
+        print("init world map...")
         if not force_update and os.path.exists(self.cache_file):
             print("INFO: Chargement de la carte depuis le cache...")
             self._load_from_file()

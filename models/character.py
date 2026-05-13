@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, TYPE_CHECKING
 from datetime import datetime, timezone
-from models.tasks import TaskResult, Task
+from models.tasks import Task
 
 if TYPE_CHECKING:
     from models.account import Account
@@ -114,6 +114,7 @@ class Character:
         return False
 
     async def main_loop(self):
+        await asyncio.sleep(1)  # petit délai avant
         while True:
             try:
                 await self.wait_until_ready()

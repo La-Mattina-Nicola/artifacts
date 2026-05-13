@@ -9,6 +9,8 @@ task_fight = (1, 2)
 @cancellable
 async def tasking(char: "Character", type="items"):
     await char.sync()
+    if char.task_type != "":
+        type = char.task_type
 
     print(f"📋 {char.name} démarre une tâche de type {type}.")
     print(f"{char.task} {char.task_type} {char.task_progress}/{char.task_total}")
@@ -23,12 +25,9 @@ async def tasking(char: "Character", type="items"):
         await char.tasker.accept()
 
     doable = await char.account.is_task_doable(char, type)
-    await asyncio.sleep(3)
 
     if not doable:
-        print(f"❌ Tâche {char.task} non réalisable.")
-        char.default_task = None
-        return
+        await asyncio.sleep(3)  # wait before account assign a new task
 
     else:
         if type == "items":
@@ -58,7 +57,6 @@ async def tasking(char: "Character", type="items"):
             print(
                 f"⚠️ Tâche {char.task} en cours : {char.task_progress}/{char.task_total}"
             )
-            char.default_task = None
             return
         await char.tasker.complete()
 
