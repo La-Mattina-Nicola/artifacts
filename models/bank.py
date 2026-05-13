@@ -6,6 +6,7 @@ class BankManager:
     def __init__(self, client):
         self.client = client
         self.content: Dict[str, int] = {}
+        self.items_data: Dict[str, dict] = {}  # code → full item dict
         self.gold: int = 0
 
     async def sync(self):
@@ -13,6 +14,7 @@ class BankManager:
 
         print("init bank...")
         all_items = {}
+        all_items_data = {}
         page = 1
         while True:
             res = await self.client.get(
@@ -23,10 +25,12 @@ class BankManager:
             data = res.json()
             for item in data.get("data", []):
                 all_items[item["code"]] = item["quantity"]
+                all_items_data[item["code"]] = item  # store full dict
             if page >= data.get("pages", 1):
                 break
             page += 1
         self.content = all_items
+        self.items_data = all_items_data
 
         res_gold = await self.client.get("/my/bank/gold")
         if res_gold.status_code == 200:
@@ -39,7 +43,9 @@ class BankManager:
         res = await char.client.post(endpoint, json=items)
 
         if res.status_code == 200:
+            await char.account.bank.sync()
             data = res.json().get("data", {})
+            char.update_from_api(data.get("character", {}))
 
             for item in items:
                 print(f"📦 {char.name} a déposé {item['quantity']}x {item['code']}")
@@ -47,7 +53,7 @@ class BankManager:
                     self.content.get(item["code"], 0) + item["quantity"]
                 )
 
-            self._update_char(char, data)
+            char.update_from_api(data.get("character", {}))
             await char.account.bank.sync()
             return True
         else:
@@ -61,12 +67,13 @@ class BankManager:
 
         if res.status_code == 200:
             data = res.json().get("data", {})
+            char.update_from_api(data.get("character", {}))
+            await char.account.bank.sync()
             for item in items:
                 code, qty = item["code"], item["quantity"]
                 print(f"📦 {char.name} a pris {item['quantity']}x {item['code']}")
                 if code in self.content:
                     self.content[code] -= qty
-            self._update_char(char, data)
             return True
         else:
             err = res.json().get("error", {})
@@ -74,36 +81,6 @@ class BankManager:
             error_msg = err.get("message", "Erreur inconnue")
             print(f"❌ Erreur retrait {char.name} ({error_code}): {error_msg}")
             return False
-
-    def _update_char(self, char, data):
-        # Chercher le bon character par son nom dans data.characters
-        char_data = None
-        if data.get("characters"):
-            for c in data["characters"]:
-                if c.get("name") == char.name:
-                    char_data = c
-                    break
-
-        # Fallback: si pas trouvé, prendre le premier
-        if not char_data and data.get("characters"):
-            char_data = data["characters"][0]
-
-        # Fallback: ancienne structure
-        if not char_data:
-            char_data = data.get("character")
-
-        if char_data:
-            char.inventory = char_data.get("inventory", char.inventory)
-            char.gold = char_data.get("gold", char.gold)
-            char.hp = char_data.get("hp", char.hp)
-            char.level = char_data.get("level", char.level)
-
-        # Cooldown depuis data.cooldown ou data.cooldown_expiration
-        cooldown_data = data.get("cooldown", {})
-        if cooldown_data.get("expiration"):
-            char.cooldown_expiration = cooldown_data.get("expiration")
-        elif data.get("cooldown_expiration"):
-            char.cooldown_expiration = data.get("cooldown_expiration")
 
     def enough_in_bank(self, item_code: str, quantity: int) -> bool:
         """Vérifie si la banque contient au moins `quantity` de `item_code`."""

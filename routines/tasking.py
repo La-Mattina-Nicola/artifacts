@@ -1,4 +1,5 @@
 from models import Character
+from routines.fighting import fighting
 from .utils import cancellable
 import asyncio
 
@@ -9,12 +10,15 @@ task_fight = (1, 2)
 @cancellable
 async def tasking(char: "Character", type="items"):
     await char.sync()
+    await char.account.bank.sync()
+    
     if char.task_type != "":
         type = char.task_type
+    print(
+        f"TASKING {type} : {char.name} {char.task} {char.task_type} {char.task_progress}/{char.task_total}"
+    )
 
-    print(f"📋 {char.name} démarre une tâche de type {type}.")
-    print(f"{char.task} {char.task_type} {char.task_progress}/{char.task_total}")
-
+    # 1. si pas de task -> en prendre une
     if char.task == "" or char.task is None:
         if type == "items":
             await char.mover.to_coords(*task_items)
@@ -24,13 +28,24 @@ async def tasking(char: "Character", type="items"):
         # accept new task
         await char.tasker.accept()
 
-    doable = await char.account.is_task_doable(char, type)
+    resource = char.task
+    needed = char.task_total - char.task_progress
 
-    if not doable:
-        await asyncio.sleep(3)  # wait before account assign a new task
-
-    else:
+    if needed <= 0:
         if type == "items":
+            await char.mover.to_coords(*task_items)  # go to task npc items
+        else:
+            await char.mover.to_coords(*task_fight)  # go to task npc fight
+
+        await char.tasker.complete()
+        await char.sync()
+        print(f"✅ Tâche {char.task} accomplie.")
+        return
+
+    if char.task_type == "items":
+        bank_qty = char.account.bank.quantity(char.task)
+
+        if bank_qty >= needed:
             while char.task_progress < char.task_total:
                 await char.mover.to_bank()
                 to_deposit = [
@@ -47,19 +62,16 @@ async def tasking(char: "Character", type="items"):
                 to_withdraw = {"code": char.task, "quantity": inventory_quantity}
                 await char.banker.withdraw([to_withdraw])
 
-                await char.mover.to_coords(*task_items)  # go to task npc items
+                await char.mover.to_coords(*task_items)
                 await char.tasker.trade(to_withdraw)
                 await char.sync()
-        else:
-            await char.mover.to_coords(*task_fight)  # go to task npc fight
-
-        if char.task_progress != char.task_total:
-            print(
-                f"⚠️ Tâche {char.task} en cours : {char.task_progress}/{char.task_total}"
-            )
+        else:  # ressource needed is not fully available in bank, need to gather / craft
+            await char.account.ensure_resource(resource, needed, requester=char)
+            await char.sync()
             return
-        await char.tasker.complete()
 
-        await char.sync()
-
-        print(f"✅ Tâche {char.task} accomplie.")
+    else:
+        if needed > 0:
+            await char.account.ensure_resource(resource, needed, requester=char)
+            await char.sync()
+            return

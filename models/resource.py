@@ -84,6 +84,10 @@ class ResourceManager:
         with open(self.cache_file, "w") as f:
             json.dump(data, f)
 
+    def get_resource_objects_for_item(self, item_code: str) -> List["ResourceData"]:
+        codes = self._item_to_resources.get(item_code, set())
+        return [self.resources[c] for c in codes if c in self.resources]
+
     def get_sources_for_item(self, item_code: str) -> Set[str]:
         """Retourne les codes des ressources qui drop cet item."""
         return self._item_to_resources.get(item_code, set())

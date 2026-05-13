@@ -146,6 +146,7 @@ class GatherAction(BaseAction):
 
         if response.status_code == 200:
             data = res_json.get("data", {})
+            self.char.update_from_api(data["character"])
 
             details_data = data.get("details", {})
             loot = details_data.get("items", [])
@@ -153,7 +154,6 @@ class GatherAction(BaseAction):
                 str = " | ".join(f"x{item['quantity']} {item['code']}" for item in loot)
                 print(f"📦 {self.char.name:7} - {str}")
 
-            self.char.update_from_api(data["character"])
             return True
 
         else:
@@ -283,4 +283,42 @@ class TaskAction(BaseAction):
             return True
         else:
             print(f"❌ Échec de la complétion de la tâche : {response.text}")
+            return False
+
+
+class EquipAction(BaseAction):
+    async def equip(self, item_code: str, slot: str = "weapon"):
+        response = await self.char.client.post(
+            f"/my/{self.char.name}/action/equip",
+            {"code": item_code, "slot": slot, "quantity": 1},
+        )
+        if response.status_code == 200:
+            self.char.update_from_api(
+                response.json().get("data", {}).get("character", {})
+            )
+            print(f"✅ {self.char.name} a équipé {item_code}.")
+            self.char.update_from_api(
+                response.json().get("data", {}).get("character", {})
+            )
+            return True
+        else:
+            print(f"❌ Échec de l'équipement de {item_code} : {response.text}")
+            return False
+
+    async def unequip(self, slot: str = "weapon"):
+        response = await self.char.client.post(
+            f"/my/{self.char.name}/action/unequip",
+            {"slot": slot, "quantity": 1},
+        )
+        if response.status_code == 200:
+            self.char.update_from_api(
+                response.json().get("data", {}).get("character", {})
+            )
+            print(f"✅ {self.char.name} a déséquipé {slot}.")
+            self.char.update_from_api(
+                response.json().get("data", {}).get("character", {})
+            )
+            return True
+        else:
+            print(f"❌ Échec du déséquipement de {slot} : {response.text}")
             return False

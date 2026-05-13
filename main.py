@@ -101,12 +101,13 @@ async def main():
         await account.initialize()
         ctx["account"] = account
 
-        # ← ici
         _spawn_task(account.listen_completions(), "listen_completions", hero_tasks)
 
         ctx["items_manager"] = account.items_db
         ctx["world_map"] = account.world
         ctx["bank"] = account.bank
+
+        print(f"Bank copper_ore: {account.bank.quantity('copper_ore')}")
 
         default_tasks = {
             "Kioyaa": (tasking, ["items"]),
@@ -119,9 +120,10 @@ async def main():
         for key, value in default_tasks.items():
             char = account.add_character(key)
             heroes.append(char)
-            await char.sync()
-            char.default_task = _make_task(char, value[0], *value[1])
-            _spawn_task(char.main_loop(), f"main_loop:{char.name}", hero_tasks)
+            done = await char.sync()
+            if done:
+                char.default_task = _make_task(char, value[0], *value[1])
+                _spawn_task(char.main_loop(), f"main_loop:{char.name}", hero_tasks)
 
         print(f"✅ {len(heroes)} héros sont en ligne !")
 

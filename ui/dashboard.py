@@ -149,7 +149,7 @@ def build_tasks_summary(account) -> str:
         icon = STATUS_ICON.get(task.status, "❓")
         prefix = "  " * indent + ("└─ " if indent > 0 else "")
         target = f"{task.target:<20}"
-        qty = f"x{task.quantity:<4}"
+        qty = f"x{task.quantity_total:<4}"
         who = task.assigned_to or "—"
         prio = f"[#{task.id}|p:{task.priority}]"
         lines.append(

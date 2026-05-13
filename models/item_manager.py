@@ -2,6 +2,7 @@ import json
 import os
 from typing import Dict, List, Optional
 
+from models.character import Character
 from models.items import Item
 
 
@@ -152,3 +153,30 @@ class ItemsManager:
                 ing_with_qty = dataclasses.replace(ing, quantity=ingredient["quantity"])
                 result.append(ing_with_qty)
         return result
+
+    def get_tools_for_skill(self, skill: str) -> List[Item]:
+        return sorted(
+            [
+                item
+                for item in self.items.values()
+                if item.subtype == "tool"
+                and any(e.get("code") == skill for e in item.effects)
+            ],
+            key=lambda i: i.level,
+        )
+
+    def get_best_tool_for_skill(self, skill: str, char: "Character") -> Optional[Item]:
+        item_catalog = char.account.items_db.items  # Dict[str, Item]
+
+        viable_tools = [
+            item
+            for code, qty in char.account.bank.content.items()
+            if qty > 0
+            and (item := item_catalog.get(code)) is not None
+            and item.subtype == "tool"
+            and any(e.get("code") == skill for e in item.effects)
+            and item.level <= char.get_skill_level(skill)
+        ]
+
+        viable_tools.sort(key=lambda item: item.level)
+        return viable_tools[-1] if viable_tools else None

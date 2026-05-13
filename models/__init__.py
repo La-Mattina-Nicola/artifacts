@@ -7,6 +7,7 @@ from .actions import (
     GatherAction,
     CraftAction,
     TaskAction,
+    EquipAction,
 )
 from .item_manager import ItemsManager
 from .items import Item
@@ -23,6 +24,7 @@ __all__ = [
     "GatherAction",
     "CraftAction",
     "TaskAction",
+    "EquipAction",
     "ItemsManager",
     "Item",
     "ResourceManager",
